@@ -1,0 +1,97 @@
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 20px;
+  background-color: #2c3e70;
+  color: white;
+  height: 80px; /* increased from 60px */
+  font-size: 18px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  position: relative;
+}
+
+
+.header h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.user-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background-color: #2d2d40;
+  padding: 6px 12px;
+  border-radius: 20px;
+}
+
+.username {
+  font-size: 14px;
+  color: #fff;
+}
+
+.logout-btn {
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.logout-btn:hover {
+  color: #f87171;
+}
+
+.left-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.menu-btn {
+  background-color: #2d3e50;
+  color: white;
+  border: none;
+  font-size: 20px;
+  border-radius: 10px;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.menu-btn:hover {
+  background-color: #3b4b5c;
+}
+
+.menu-and-title {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  position: relative;
+  height: 100%;
+}
+
+.title-container {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  line-height: 1.2;
+}
+
+.title-container h1 {
+  margin: 0;
+  font-size: 22px;
+  white-space: nowrap;
+}
+
+.subtitle {
+  font-size: 12px;
+  margin: 2px 0 0;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

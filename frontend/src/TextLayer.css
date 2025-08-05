@@ -1,0 +1,9 @@
+/* src/TextLayer.css */
+
+.textLayer span.highlight {
+  background-color: yellow;
+  color: black !important;
+  border-radius: 4px;
+  padding: 1px 2px;
+}
+

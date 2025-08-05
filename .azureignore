@@ -1,0 +1,36 @@
+# Node and npm
+**/node_modules/
+**/package-lock.json
+
+# Python virtual environments
+.venv/
+__pycache__/
+
+# Build output
+**/build/
+
+# VSCode settings
+.vscode/
+
+# Environment variables
+.env
+
+# Log files or OS-generated files
+*.log
+*.pyc
+.DS_Store
+Thumbs.db
+
+# Ignore frontend source files (keep only build if needed)
+frontend/public/
+frontend/src/
+frontend/package.json
+frontend/package-lock.json
+
+# Tests or dev scripts if any (optional)
+*.test.js
+*.spec.js
+
+# Other deployment-related ignore rules (edit as needed)
+README.md
+startup.sh

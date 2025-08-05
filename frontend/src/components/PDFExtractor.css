@@ -1,0 +1,282 @@
+/* ---------- Global Reset ---------- */
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', sans-serif;
+  background-color: #f3f4f6;
+  height: 100vh;
+  overflow: auto;
+}
+
+/* ---------- Layout Structure ---------- */
+.pdf-extractor {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+}
+
+/* ---------- Left Panel ---------- */
+.left-panel {
+  width: 300px;
+  padding: 20px;
+  background-color: #ffffff;
+  border-right: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+
+.left-panel h3 {
+  font-size: 22px;
+  margin-bottom: 8px;
+  color: #000000;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+}
+
+.field label {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: #444;
+}
+
+.field input,
+.field textarea {
+  padding: 8px 10px;
+  font-size: 14px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background-color: #fefefe;
+  transition: border 0.2s ease;
+  font-family: 'Segoe UI', sans-serif;
+  font-weight: 500;
+}
+
+.field input[type="date"] {
+  cursor: pointer;
+  min-height: 36px;
+}
+
+.field input:focus,
+.field textarea:focus {
+  border-color: #3f51b5;
+  outline: none;
+}
+
+.field textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.left-panel button {
+  padding: 10px 15px;
+  background-color: #3f51b5;
+  color: white;
+  font-weight: bold;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s ease-in-out;
+}
+
+.left-panel button:hover {
+  background-color: #2c3ea8;
+}
+
+/* ---------- Right Panel ---------- */
+.right-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: #f9f9f9;
+  overflow: hidden;
+}
+
+/* ---------- Toolbar ---------- */
+.toolbar {
+  flex-shrink: 0;
+  padding: 12px 20px;
+  background-color: #2c3e70;
+  border-bottom: 1px solid #333;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  z-index: 5;
+}
+
+.toolbar-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: center;
+}
+
+/* Page Input */
+.page-info input {
+  width: 44px;
+  background-color: #fff;
+  color: #111;
+  border: 1px solid #ccc;
+  padding: 4px 6px;
+  border-radius: 4px;
+  text-align: center;
+  font-weight: 500;
+  font-size: 14px;
+}
+.page-info span {
+  color: #fff;
+  font-size: 14px;
+}
+
+/* Zoom Controls */
+.zoom-controls button {
+  background: none;
+  color: white;
+  font-size: 16px;
+  border: none;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+.zoom-label {
+  background-color: #fff;
+  color: #111;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  font-size: 14px;
+  border: 1px solid #ccc;
+}
+
+/* Page Fit */
+.page-fit button {
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: white;
+  cursor: pointer;
+  padding: 4px;
+}
+
+/* Search Box */
+.search-box input {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  background-color: #fff;
+  color: #111;
+  font-size: 14px;
+  width: 100%;
+  max-width: 160px;
+}
+
+/* ---------- PDF Viewer ---------- */
+.pdf-viewer-container {
+  flex: 1;
+  overflow-y: auto;
+  position: relative;
+  padding: 20px;
+  scroll-behavior: smooth;
+  background-color: #f9f9f9;
+}
+.pdf-viewer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.page-wrapper {
+  position: relative;
+  margin-bottom: 20px;
+  background-color: white;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* ---------- Highlight Boxes ---------- */
+.highlight-box {
+  position: absolute;
+  background-color: rgba(255, 235, 59, 0.45);
+  pointer-events: none;
+  z-index: 10;
+  border-radius: 4px;
+  box-shadow: 0 0 2px #f3e32b;
+  transform: translateY(1px);
+}
+
+/* ---------- Text Layer Fix ---------- */
+.react-pdf__Page__textContent {
+  transform: none !important;
+}
+/* ---------- Buttons + Spinner ---------- */
+.button-group {
+  display: flex;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+
+.extract-btn,
+.save-btn {
+  flex: 1; /* make them equal width */
+  padding: 10px 24px;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: none;
+  min-width: 120px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: all 0.3s ease;
+}
+.extract-btn {
+  background-color: #3f51b5;
+  color: white;
+}
+
+/* Hover effects */
+.extract-btn:hover,
+.save-btn:hover {
+  background-color: #2c3ea8;
+}
+
+.save-btn {
+  background-color: #3f51b5;
+  color: white;
+}
+
+.save-btn:hover {
+  background-color: #e8eaf6;
+}
+
+/* Disabled styles */
+.extract-btn:disabled,
+.save-btn:disabled {
+  background-color: #aab2d5;
+  color: white;
+  cursor: not-allowed;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 3px solid #ffffff;
+  border-top: 3px solid #ffc107;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-left: 8px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

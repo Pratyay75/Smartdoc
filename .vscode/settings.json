@@ -1,0 +1,4 @@
+{
+    "appService.defaultWebAppToDeploy": "None",
+    "postman.settings.dotenv-detection-notification-visibility": false
+}

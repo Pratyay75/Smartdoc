@@ -1,0 +1,120 @@
+/* === Container and Hero Section === */
+.home-container {
+  padding: 50px 30px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  color: #1f2937; /* Gray-800 */
+  background: linear-gradient(to bottom right, #f0f4f8, #ffffff);
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+/* Hero Title and Tagline */
+.hero {
+  text-align: center;
+  margin-bottom: 60px;
+}
+
+.hero h1 {
+  font-size: 48px;
+  font-weight: 700;
+  color: #000000; /* Blue-800 */
+  margin-bottom: 15px;
+}
+
+.tagline {
+  font-size: 20px;
+  color: #475569; /* Slate-600 */
+  max-width: 800px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+/* === Side by Side Section Container === */
+.side-by-side-sections {
+  display: flex;
+  flex-direction: row;
+  gap: 30px;
+  margin-top: 30px;
+}
+
+/* === Individual Section Card === */
+.section {
+  flex: 1;
+  background-color: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+  padding: 30px;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.section:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+.section h2 {
+  font-size: 26px;
+  color: #0f172a; /* Gray-900 */
+  margin-bottom: 20px;
+  border-bottom: 2px solid #e0e7ff;
+  padding-bottom: 8px;
+}
+
+.section ul {
+  padding-left: 20px;
+  list-style-type: disc;
+}
+
+.section li {
+  font-size: 17px;
+  line-height: 1.8;
+  margin-bottom: 12px;
+  color: #334155; /* Slate-700 */
+}
+
+.section strong {
+  color: #1e40af;  /* Sky-500 */
+}
+
+/* === Responsive Design === */
+@media (max-width: 1024px) {
+  .hero h1 {
+    font-size: 40px;
+  }
+
+  .tagline {
+    font-size: 18px;
+  }
+
+  .section h2 {
+    font-size: 22px;
+  }
+}
+
+@media (max-width: 768px) {
+  .side-by-side-sections {
+    flex-direction: column;
+  }
+
+  .section {
+    padding: 25px;
+  }
+
+  .hero h1 {
+    font-size: 34px;
+  }
+
+  .tagline {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .home-container {
+    padding: 30px 15px;
+  }
+
+  .section {
+    padding: 20px;
+  }
+}
