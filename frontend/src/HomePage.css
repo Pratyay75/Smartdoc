@@ -1,50 +1,56 @@
 /* === Container and Hero Section === */
 .home-container {
-  padding: 50px 30px;
+  padding: 32px 40px 60px 40px; /* Equal and responsive padding */
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   color: #1f2937; /* Gray-800 */
   background: linear-gradient(to bottom right, #f0f4f8, #ffffff);
-  min-height: 100vh;
+  min-height: calc(100vh - 64px); /* Full height minus header height */
   box-sizing: border-box;
+  overflow-x: hidden; /* Avoid horizontal scrollbar */
 }
 
 /* Hero Title and Tagline */
 .hero {
   text-align: center;
-  margin-bottom: 60px;
+  margin-bottom: 40px; /* Equal gap below title and above cards */
 }
 
 .hero h1 {
-  font-size: 48px;
+  font-size: 44px;
   font-weight: 700;
-  color: #000000; /* Blue-800 */
-  margin-bottom: 15px;
+  color: #000000;
+  margin: 0 0 12px 0;
 }
 
 .tagline {
-  font-size: 20px;
-  color: #475569; /* Slate-600 */
+  font-size: 18px;
+  color: #475569;
   max-width: 800px;
   margin: 0 auto;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
-/* === Side by Side Section Container === */
+/* Side-by-Side Sections */
 .side-by-side-sections {
   display: flex;
-  flex-direction: row;
-  gap: 30px;
-  margin-top: 30px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 32px;
+  padding: 0 40px;
+  max-width: 1200px;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 
-/* === Individual Section Card === */
+/* Each Info Box */
 .section {
-  flex: 1;
+  flex: 1 1 360px;
   background-color: #ffffff;
   border-radius: 16px;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
-  padding: 30px;
+  padding: 24px;
   transition: transform 0.3s ease, box-shadow 0.3s ease;
+  min-height: 300px; /* For equal height */
 }
 
 .section:hover {
@@ -53,7 +59,7 @@
 }
 
 .section h2 {
-  font-size: 26px;
+  font-size: 24px;
   color: #0f172a; /* Gray-900 */
   margin-bottom: 20px;
   border-bottom: 2px solid #e0e7ff;
@@ -66,9 +72,9 @@
 }
 
 .section li {
-  font-size: 17px;
-  line-height: 1.8;
-  margin-bottom: 12px;
+  font-size: 16px;
+  line-height: 1.6;
+  margin-bottom: 10px;
   color: #334155; /* Slate-700 */
 }
 
@@ -76,45 +82,67 @@
   color: #1e40af;  /* Sky-500 */
 }
 
+/* === Page Content (Resets Default Padding) === */
+.page-content {
+  padding: 0;
+  margin: 0;
+}
+
 /* === Responsive Design === */
 @media (max-width: 1024px) {
   .hero h1 {
-    font-size: 40px;
+    font-size: 38px;
   }
 
   .tagline {
-    font-size: 18px;
+    font-size: 17px;
   }
 
   .section h2 {
     font-size: 22px;
   }
+
+  .side-by-side-sections {
+    padding: 0 30px;
+  }
 }
 
 @media (max-width: 768px) {
-  .side-by-side-sections {
-    flex-direction: column;
-  }
-
-  .section {
-    padding: 25px;
-  }
-
   .hero h1 {
-    font-size: 34px;
+    font-size: 32px;
   }
 
   .tagline {
-    font-size: 16px;
+    font-size: 15px;
+  }
+
+  .side-by-side-sections {
+    flex-direction: column;
+    align-items: center;
+    padding: 0 20px;
+  }
+
+  .section {
+    width: 100%;
+    max-width: 500px;
+    padding: 20px;
   }
 }
 
 @media (max-width: 480px) {
   .home-container {
-    padding: 30px 15px;
+    padding: 24px 15px 40px 15px;
   }
 
   .section {
-    padding: 20px;
+    padding: 18px;
+  }
+
+  .hero h1 {
+    font-size: 28px;
+  }
+
+  .tagline {
+    font-size: 14px;
   }
 }

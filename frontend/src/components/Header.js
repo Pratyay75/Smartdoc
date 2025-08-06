@@ -15,7 +15,6 @@ function Header({ onLogout }) {
       <div className="menu-and-title">
         <div className="title-container">
           <h1>SmartDoc AI</h1>
-          <p className="subtitle">Extract What Matters. Validate. Explore Insights.</p>
         </div>
       </div>
       <div className="user-section">

@@ -32,10 +32,8 @@ function MainLayout({ onLogout }) {
             <div className="home-container">
               <section className="hero">
                 <h1>SmartDoc AI</h1>
-                <p className="tagline">
-                  No more digging through pages of PDFs or forms. SmartDoc AI pulls out just the info you need,
-                  checks it for accuracy, and gives you quick insights — all in seconds.
-                </p>
+                <p className="tagline">Extract What Matters. Validate. Explore Insights.</p>
+
               </section>
 
               <div className="side-by-side-sections">
