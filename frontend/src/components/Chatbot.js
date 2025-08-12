@@ -48,7 +48,10 @@ useEffect(() => {
 
     setMessages(prev => [...prev, { sender: 'bot', text: '...', loading: true }]);
 
-    const BACKEND_URL = "http://localhost:5000";
+    const BACKEND_URL = window.location.hostname.includes("localhost")
+  ? "http://localhost:5000"
+  : "https://smartdoc.azurewebsites.net";
+
 const route = contextType === "multi-doc" 
   ? `${BACKEND_URL}/chat-multi-doc` 
   : `${BACKEND_URL}/chat`;
