@@ -50,7 +50,8 @@ useEffect(() => {
 
     const BACKEND_URL = window.location.hostname.includes("localhost")
   ? "http://localhost:5000"
-  : "https://smartdoc.azurewebsites.net";
+  : "https://smartdoc-ebf9a0eddvd0ecet.eastus-01.azurewebsites.net";
+
 
 const route = contextType === "multi-doc" 
   ? `${BACKEND_URL}/chat-multi-doc` 
