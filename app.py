@@ -16,7 +16,7 @@ import requests
 from Analytics import (
     calculate_analytics,
 )
-from ingest_pdf import push_chunks_to_search
+from ingest_pdf import push_chunks_to_search, extract_chunks
 # ------------------ CONFIG ------------------
 load_dotenv()
 
@@ -24,16 +24,14 @@ app = Flask(__name__, static_folder="frontend/build", static_url_path="")
 
 from flask_cors import CORS
 
-CORS(app, supports_credentials=True, resources={
-    r"/*": {
-        "origins": [
-            "http://localhost:3000",
-            "https://smartdoc.azurewebsites.net"
-        ]
-    }
-})
-
-
+CORS(app, supports_credentials=True, resources={r"/*": {
+    "origins": [
+        "http://localhost:3000",
+        "https://smartdoc.azurewebsites.net"
+    ],
+    "allow_headers": ["Content-Type", "Authorization"],
+    "methods": ["GET", "POST", "OPTIONS", "PUT", "DELETE"]
+}})
 
 
 logging.basicConfig(level=logging.INFO)
@@ -54,7 +52,10 @@ users_collection = db["users"]
 # Azure Search Setup
 AZURE_SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT")
 AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_API_KEY")
-AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX_NAME")
+AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX")
+
+
+# ------------------ Document classification helper ------------------
 
 
 # ------------------ SIGNUP ------------------
@@ -428,6 +429,171 @@ def save():
 
     return jsonify({"message": "User updated data saved successfully"})
 
+
+
+# ------------------ Multi-doc upload route ------------------
+from werkzeug.utils import secure_filename
+import tempfile
+import fitz  # PyMuPDF
+import docx
+import chardet
+
+@app.route("/upload-multi-doc", methods=["POST"])
+def upload_multi_doc():
+    """
+    Accept multiple documents, upload them to Azure Blob Storage,
+    process them into chunks, send to Azure Search (with blob_name in metadata),
+    and return metadata for frontend.
+    """
+    try:
+        if "files" not in request.files:
+            return jsonify({"error": "No files provided"}), 400
+
+        uploaded_files = request.files.getlist("files")
+        results = []
+
+        from azure.storage.blob import BlobServiceClient
+        BLOB_CONN_STR = os.getenv("AZURE_BLOB_CONNECTION_STRING")
+        BLOB_CONTAINER = os.getenv("AZURE_STORAGE_CONTAINER")
+        blob_service = BlobServiceClient.from_connection_string(BLOB_CONN_STR)
+        container_client = blob_service.get_container_client(BLOB_CONTAINER)
+
+        for file in uploaded_files:
+            filename = secure_filename(file.filename)
+            ext = filename.lower().split(".")[-1]
+
+            # save temp file
+            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                file.save(tmp.name)
+                file_path = tmp.name
+
+            # extract text chunks
+            if ext == "pdf":
+                chunks = extract_chunks(file_path)
+            elif ext == "docx":
+                import docx
+                docx_doc = docx.Document(file_path)
+                chunks = [p.text for p in docx_doc.paragraphs if p.text.strip()]
+            elif ext == "txt":
+                import chardet
+                with open(file_path, "rb") as f:
+                    raw_data = f.read()
+                    detected_encoding = chardet.detect(raw_data)["encoding"] or "utf-8"
+                    text_content = raw_data.decode(detected_encoding, errors="ignore")
+                chunks = [p.strip() for p in text_content.split("\n\n") if p.strip()]
+            else:
+                os.unlink(file_path)
+                continue
+ 
+           #assification sample
+            
+            
+ 
+            # upload to blob
+            blob_name = f"{uuid.uuid4()}_{filename}"
+            with open(file_path, "rb") as data:
+                blob_client = container_client.get_blob_client(blob_name)
+                blob_client.upload_blob(data, overwrite=True)
+
+            # push to search with blob_name
+            push_chunks_to_search(
+                chunks,
+                source_name=filename,
+                blob_name=blob_name
+            )
+
+            # prepare return data
+            size_kb = round(os.path.getsize(file_path) / 1024, 1)
+            results.append({
+                "name": filename,
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "status": "Uploaded",
+                "size": f"{size_kb} KB",
+                "blob_name": blob_name
+            })
+
+            os.unlink(file_path)
+
+        return jsonify({"documents": results})
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+def delete_search_docs_by_blob(blob_name):
+    """Delete all docs from Azure Search that match blob_name in metadata."""
+    try:
+        search_url = f"{os.getenv('AZURE_SEARCH_ENDPOINT')}/indexes/{os.getenv('AZURE_SEARCH_INDEX')}/docs/search?api-version=2023-07-01-Preview"
+        headers = {"Content-Type": "application/json", "api-key": os.getenv("AZURE_SEARCH_API_KEY")}
+        body = {"search": blob_name, "top": 1000}
+        res = requests.post(search_url, headers=headers, json=body)
+        if res.status_code != 200:
+            print("Search query failed for blob deletion:", res.text)
+            return False
+
+        hits = res.json().get("value", [])
+        ids = [d.get("id") for d in hits if d.get("id")]
+        if not ids:
+            return True
+
+        delete_payload = {"value": [{"@search.action": "delete", "id": doc_id} for doc_id in ids]}
+        update_url = f"{os.getenv('AZURE_SEARCH_ENDPOINT')}/indexes/{os.getenv('AZURE_SEARCH_INDEX')}/docs/index?api-version=2023-07-01-Preview"
+        res2 = requests.post(update_url, headers=headers, json=delete_payload)
+        return res2.status_code in (200, 201)
+    except Exception as e:
+        print("Error in delete_search_docs_by_blob:", e)
+        return False
+
+
+@app.route("/delete-blob", methods=["POST"])
+def delete_blob_route():
+    """Delete a single blob and its related Azure Search docs."""
+    try:
+        data = request.get_json(force=True)
+        blob_name = data.get("blob_name")
+        if not blob_name:
+            return jsonify({"error": "Missing blob_name"}), 400
+
+        from azure.storage.blob import BlobServiceClient
+        BLOB_CONN_STR = os.getenv("AZURE_BLOB_CONNECTION_STRING")
+        BLOB_CONTAINER = os.getenv("AZURE_STORAGE_CONTAINER")
+        blob_service = BlobServiceClient.from_connection_string(BLOB_CONN_STR)
+        container_client = blob_service.get_container_client(BLOB_CONTAINER)
+        container_client.delete_blob(blob_name)
+
+        delete_search_docs_by_blob(blob_name)
+
+        return jsonify({"message": f"Blob {blob_name} deleted"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/delete-multiple-blobs", methods=["POST"])
+def delete_multiple_blobs_route():
+    """Delete multiple blobs and their related Azure Search docs."""
+    try:
+        data = request.get_json(force=True)
+        blob_names = data.get("blob_names", [])
+        if not blob_names:
+            return jsonify({"error": "Missing blob_names list"}), 400
+
+        from azure.storage.blob import BlobServiceClient
+        BLOB_CONN_STR = os.getenv("AZURE_BLOB_CONNECTION_STRING")
+        BLOB_CONTAINER = os.getenv("AZURE_STORAGE_CONTAINER")
+        blob_service = BlobServiceClient.from_connection_string(BLOB_CONN_STR)
+        container_client = blob_service.get_container_client(BLOB_CONTAINER)
+
+        for blob_name in blob_names:
+            container_client.delete_blob(blob_name)
+            delete_search_docs_by_blob(blob_name)
+
+        return jsonify({"message": "All blobs deleted"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
 # ------------------ CHATBOT ------------------
 def query_azure_search(question, top_k=5):
     url = f"{AZURE_SEARCH_ENDPOINT}/indexes/{AZURE_SEARCH_INDEX}/docs/search?api-version=2023-07-01-Preview"
@@ -512,6 +678,63 @@ Help the user by answering their question **only using the content of the provid
         return jsonify({"answer": answer})
     except Exception as e:
         logging.error(f"❌ Error in chatbot: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/chat-multi-doc", methods=["POST"])
+def chat_multi_doc():
+    """
+    Chatbot for multi-document context using Azure Search RAG.
+    Does NOT rely on pdf_id; uses all docs uploaded in this session/index.
+    """
+    try:
+        data = request.json
+        question = data.get("question", "").strip()
+        if not question:
+            return jsonify({"error": "No question provided"}), 400
+
+        # Search across all indexed documents
+        search_chunks = query_azure_search(question, top_k=6)
+
+        if not search_chunks:
+            return jsonify({"answer": "I couldn't find any relevant information in the uploaded documents."})
+
+        full_text = "\n\n---\n\n".join(search_chunks)
+
+        prompt = f"""
+You are  —Chatbot a smart, human-like assistant trained to help users understand complex documents (contracts, invoices, insurance policies, reports, etc.).
+
+🎯 Goal:
+Help the user by answering **only using the provided document content**. Be clear, friendly, and accurate.
+
+🧠 Behavior Rules:
+- Do NOT guess. If unsure, politely say you cannot find the answer.
+- Use bullet points, numbered steps, or short sentences based on the question type.
+- Be professional but conversational.
+
+📄 Document Content:
+{full_text}
+
+❓ Question:
+{question}
+
+💬 Answer:
+"""
+
+        response = client_azure.chat.completions.create(
+            model=DEPLOYMENT_NAME,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant answering based on multiple documents."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.5
+        )
+
+        answer = response.choices[0].message.content.strip()
+        return jsonify({"answer": answer})
+
+    except Exception as e:
+        logging.error(f"❌ Error in chat_multi_doc: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -612,7 +835,184 @@ def analytics_pdf_details():
         if "timestamp" in pdf:
             pdf["timestamp"] = pdf["timestamp"].strftime("%d-%m-%Y %H:%M")
     return jsonify({"pdfs": pdfs})
+# --------------------------- PDF COMPARE ---------------------------
+import fitz  # PyMuPDF
+import re
+from dateutil import parser as dateparser
+from flask import Flask, request, jsonify
+from rapidfuzz import fuzz
+import diff_match_patch as dmp_module
 
+# ---------- Config ----------
+PARA_MATCH_THRESHOLD = 80   # lower to catch minor changes
+LINE_MATCH_THRESHOLD = 85   # slightly lower for OCR tolerance
+MIN_PARTIAL_THRESHOLD = 60
+
+DATE_RE = re.compile(r"\b(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\b")
+NUMERIC_RE = re.compile(r"\b\d+(?:\.\d+)?\b")  # matches integers and decimals
+
+# ---------- Helpers ----------
+
+def normalize_whitespace(text: str) -> str:
+    text = text.replace('\r', '\n')
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = "\n".join(ln.strip() for ln in text.splitlines())
+    return text.strip()
+
+def normalize_dates(text: str) -> str:
+    def repl(m):
+        try:
+            d = dateparser.parse(m.group(0), dayfirst=True)
+            return d.strftime("%d-%m-%Y")
+        except Exception:
+            return m.group(0)
+    return DATE_RE.sub(repl, text)
+
+def extract_paragraphs_from_pdf_bytes(file_bytes: bytes):
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
+    paras = []
+    for page in doc:
+        raw = page.get_text("text") or ""
+        raw = normalize_whitespace(raw)
+        # Split on blank lines OR newline + capital letter
+        for p in re.split(r"(?:\n\s*\n)|(?:\n(?=[A-Z]))", raw):
+            p = p.strip()
+            if p:
+                p = normalize_dates(p)
+                paras.append(p)
+    doc.close()
+    return paras
+
+def numbers_changed(a: str, b: str) -> bool:
+    """Check if numeric values differ between strings."""
+    nums_a = re.findall(r"\b\d+(?:\.\d+)?\b", a)
+    nums_b = re.findall(r"\b\d+(?:\.\d+)?\b", b)
+    return nums_a != nums_b
+
+def dates_changed(a: str, b: str) -> bool:
+    """Check if date values differ between strings (after normalization)."""
+    dates_a = [normalize_dates(m) for m in DATE_RE.findall(a)]
+    dates_b = [normalize_dates(m) for m in DATE_RE.findall(b)]
+    return dates_a != dates_b
+
+def word_level_diff_html(a: str, b: str) -> str:
+    # NEW: if numeric or date values differ, mark whole thing removed/new
+    if numbers_changed(a, b) or dates_changed(a, b):
+        return f'<span class="removed">{a}</span><span class="new">{b}</span>'
+    
+    dmp = dmp_module.diff_match_patch()
+    diffs = dmp.diff_main(a, b)
+    dmp.diff_cleanupSemantic(diffs)
+    parts = []
+    for op, data in diffs:
+        txt = data.replace("\n", "<br/>")
+        if op == 0:
+            parts.append(f'<span class="same">{txt}</span>')
+        elif op == -1:
+            parts.append(f'<span class="removed">{txt}</span>')
+        elif op == 1:
+            parts.append(f'<span class="new">{txt}</span>')
+    return "".join(parts)
+
+# ---------- Main Compare Route ----------
+
+@app.route("/compare", methods=["POST"])
+def compare_pdfs():
+    try:
+        pdf1 = request.files.get("pdf1")
+        pdf2 = request.files.get("pdf2")
+        if not pdf1 or not pdf2:
+            return jsonify({"error": "Both pdf1 and pdf2 are required"}), 400
+
+        paras1 = extract_paragraphs_from_pdf_bytes(pdf1.read())
+        paras2 = extract_paragraphs_from_pdf_bytes(pdf2.read())
+
+        matched_2 = set()
+        html_blocks = []
+
+        # Match paragraphs regardless of order
+        for p1 in paras1:
+            best_score = -1
+            best_j = None
+            for j, p2 in enumerate(paras2):
+                if j in matched_2:
+                    continue
+                score = fuzz.ratio(p1, p2)
+                if score > best_score:
+                    best_score = score
+                    best_j = j
+
+            if best_score >= PARA_MATCH_THRESHOLD and best_j is not None:
+                wl_html = word_level_diff_html(p1, paras2[best_j])
+                html_blocks.append(f'<div class="para same">{wl_html}</div>')
+                matched_2.add(best_j)
+            else:
+                best_para_j = None
+                best_para_score = -1
+                for j, p2 in enumerate(paras2):
+                    if j in matched_2:
+                        continue
+                    score = fuzz.partial_ratio(p1, p2)
+                    if score > best_para_score:
+                        best_para_score = score
+                        best_para_j = j
+
+                if best_para_j is None or best_para_score < MIN_PARTIAL_THRESHOLD:
+                    html_blocks.append(f'<div class="para removed">{p1}</div>')
+                else:
+                    p2 = paras2[best_para_j]
+                    matched_2.add(best_para_j)
+
+                    lines1 = [ln.strip() for ln in p1.splitlines() if ln.strip()]
+                    lines2 = [ln.strip() for ln in p2.splitlines() if ln.strip()]
+                    matched_lines2 = set()
+                    para_html = ['<div class="para">']
+
+                    for l1 in lines1:
+                        best_lscore = -1
+                        best_lidx = None
+                        for idx2, l2 in enumerate(lines2):
+                            if idx2 in matched_lines2:
+                                continue
+                            score = fuzz.ratio(l1, l2)
+                            if score > best_lscore:
+                                best_lscore = score
+                                best_lidx = idx2
+                        if best_lscore >= LINE_MATCH_THRESHOLD and best_lidx is not None:
+                            wl_html = word_level_diff_html(l1, lines2[best_lidx])
+                            para_html.append(f'<div class="line same">{wl_html}</div>')
+                            matched_lines2.add(best_lidx)
+                        elif best_lscore >= MIN_PARTIAL_THRESHOLD and best_lidx is not None:
+                            wl_html = word_level_diff_html(l1, lines2[best_lidx])
+                            para_html.append(f'<div class="line partial">{wl_html}</div>')
+                            matched_lines2.add(best_lidx)
+                        else:
+                            para_html.append(f'<div class="line removed">{l1}</div>')
+
+                    # New lines in p2 not matched
+                    for idx2, l2 in enumerate(lines2):
+                        if idx2 not in matched_lines2:
+                            para_html.append(f'<div class="line new">{l2}</div>')
+
+                    para_html.append('</div>')
+                    html_blocks.append("".join(para_html))
+
+        # Any paras in PDF2 not matched at all → NEW
+        for j, p2 in enumerate(paras2):
+            if j not in matched_2:
+                html_blocks.append(f'<div class="para new">{p2}</div>')
+
+        final_html = '<div class="compare-output">' + "\n".join(html_blocks) + '</div>'
+        return jsonify({"html_result": final_html}), 200
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+#-----------------------------------
 
 @app.route("/")
 def index():

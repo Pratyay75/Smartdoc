@@ -20,7 +20,7 @@ headers = {
 # URL to create index
 url = f"{search_endpoint}/indexes/{index_name}?api-version=2023-07-01-Preview"
 
-# Define the index structure
+# Define the index structure (no category)
 index_config = {
     "name": index_name,
     "fields": [
@@ -29,9 +29,9 @@ index_config = {
         {
             "name": "embedding",
             "type": "Collection(Edm.Single)",
-            "searchable": True,  # ✅ FIXED: must be searchable
-            "dimensions": 1536,  # ✅ FIXED: must be named "dimensions"
-            "vectorSearchConfiguration": "default"
+            "searchable": True,
+            "dimensions": 1536,
+            "vectorSearchConfiguration": "default"  # old syntax for your API version
         },
         {"name": "metadata", "type": "Edm.String", "searchable": True}
     ],
@@ -56,4 +56,7 @@ response = requests.put(url, headers=headers, data=json.dumps(index_config))
 
 # Output result
 print("Status Code:", response.status_code)
-print(response.json())
+try:
+    print(json.dumps(response.json(), indent=2))
+except Exception:
+    print(response.text)

@@ -24,8 +24,6 @@ SEARCH_HEADERS = {
     "api-key": os.getenv("AZURE_SEARCH_API_KEY")
 }
 
-
-
 # 📄 Extract Text Page-by-Page
 def extract_chunks(pdf_path):
     doc = fitz.open(pdf_path)
@@ -50,20 +48,32 @@ def get_embedding(text):
         return []
 
 # 🔍 Push Chunk + Embedding to Azure Cognitive Search
-def push_chunks_to_search(chunks, source_name):
+def push_chunks_to_search(chunks, source_name, blob_name=None):
+    """
+    Push chunks or a single string to Azure Cognitive Search.
+    Supports optional 'blob_name' (used for deletion later).
+    """
+    if isinstance(chunks, str):
+        chunks = [chunks]
+
     documents = []
     for i, chunk in enumerate(chunks):
-        print(f"🔄 Processing chunk {i+1}/{len(chunks)}")
+        print(f"🔄 Processing chunk {i+1}/{len(chunks)} (source={source_name})")
         vector = get_embedding(chunk)
         if not vector:
             print("❌ Skipping chunk due to missing embedding")
             continue
+
+        metadata_val = f"source:{source_name}"
+        if blob_name:
+            metadata_val += f";blob:{blob_name}"
+
         documents.append({
             "@search.action": "upload",
             "id": str(uuid.uuid4()),
             "content": chunk,
             "embedding": vector,
-            "metadata": f"source:{source_name}"
+            "metadata": metadata_val
         })
 
     if not documents:
@@ -88,10 +98,6 @@ def process_pdf(pdf_path):
     print(f"✅ Extracted {len(chunks)} chunks from PDF")
     push_chunks_to_search(chunks, source_name=os.path.basename(pdf_path))
 
-#testing ke liye sample uthao 
 if __name__ == "__main__":
-    # You can still run this for manual testing
     test_path = r"D:\TRAIL\pdf-extractor\pdf-backend\Sample.pdf.pdf"
     process_pdf(test_path)
-
-

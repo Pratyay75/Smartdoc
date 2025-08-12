@@ -1,0 +1,111 @@
+/* ---------- Output text colors ---------- */
+.same { 
+  color: black;
+}
+
+.new { 
+  color: #008000; 
+}
+
+.removed { 
+  color: #ff0000; 
+  text-decoration: line-through;
+}
+
+.output-viewer.hide-same .same {
+  display: none;
+}
+.output-viewer.hide-new .new {
+  display: none;
+}
+.output-viewer.hide-removed .removed {
+  display: none;
+}
+
+/* ---------- Legend styles ---------- */
+.legend {
+  margin-bottom: 15px;
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* Checkbox styling */
+.legend-item input[type="checkbox"] {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid #888;
+  border-radius: 3px;
+  position: relative;
+  cursor: pointer;
+  background-color: white;
+}
+
+.legend-item input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  width: 4px;
+  height: 8px;
+  border: solid black;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* ---------- Legend heading colors ---------- */
+.legend-item.legend-same { color: black; }
+.legend-item.legend-new { color: #008000; }
+.legend-item.legend-removed { color: #ff0000; }
+
+/* Optional: match checkmark color with heading color */
+.legend-item.legend-new input[type="checkbox"]:checked::after {
+  border-color: #008000;
+}
+.legend-item.legend-removed input[type="checkbox"]:checked::after {
+  border-color: #ff0000;
+}
+.legend-item.legend-same input[type="checkbox"]:checked::after {
+  border-color: black;
+}
+
+/* ---------- Right panel scroll ---------- */
+.right-panel {
+  overflow-y: auto;
+  max-height: 100vh;
+  padding-right: 10px;
+}
+
+/* Scrollbar for WebKit browsers */
+.right-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.right-panel::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.right-panel::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.right-panel::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Scrollbar for Firefox */
+.right-panel {
+  scrollbar-width: thin;
+  scrollbar-color: #888 #f1f1f1;
+}

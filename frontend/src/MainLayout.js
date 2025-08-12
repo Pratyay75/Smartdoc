@@ -3,8 +3,10 @@ import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import PDFExtractor from "./components/PDFExtractor";
 import Analytics from "./components/Analytics";
+import ComparePage from "./components/ComparePage";
 import "./App.css";
 import "./HomePage.css"; // 👈 CSS for home page styling
+import MultiDocVoiceChat from "./components/MultiDocVoiceChat";
 
 function MainLayout({ onLogout }) {
   const [activePage, setActivePage] = useState("home");
@@ -64,6 +66,8 @@ function MainLayout({ onLogout }) {
 
           {activePage === "pdf" && <PDFExtractor />}
           {activePage === "analytics" && <Analytics />}
+          {activePage === "compare" && <ComparePage />}
+          {activePage === "multi-doc-chat" && <MultiDocVoiceChat />}
         </div>
       </div>
     </div>

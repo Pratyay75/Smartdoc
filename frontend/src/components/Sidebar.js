@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import "./Sidebar.css";
 import { FiMenu, FiFileText, FiBarChart2, FiHome } from "react-icons/fi";
-
 function Sidebar({ onNavigate, sidebarOpen, setSidebarOpen }) {
   const sidebarRef = useRef(null);
 
@@ -45,6 +44,16 @@ function Sidebar({ onNavigate, sidebarOpen, setSidebarOpen }) {
           >
             <FiBarChart2 /> <span>Data Analytics</span>
           </div>
+          <div
+            className="sidebar-option"
+            onClick={() => onNavigate("compare")}
+          >
+            <FiBarChart2 /> <span>Compare PDF's</span>
+          </div>                   
+          <div className="sidebar-option" onClick={() => onNavigate("multi-doc-chat")}>
+  <FiFileText /> <span>Multi-Doc Processing</span>
+</div>
+
         </div>
       )}
     </div>
