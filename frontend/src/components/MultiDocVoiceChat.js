@@ -13,7 +13,7 @@ export default function MultiDocVoiceChat() {
         const blobNames = uploadedDocs.map(doc => doc.blob_name).filter(Boolean);
         if (blobNames.length > 0) {
           try {
-            await fetch("http://localhost:5000/delete-multiple-blobs", {
+            await fetch("/delete-multiple-blobs", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ blob_names: blobNames })
@@ -50,7 +50,7 @@ export default function MultiDocVoiceChat() {
   setFiles([]);
 
   try {
-    const res = await fetch("http://localhost:5000/upload-multi-doc", {
+    const res = await fetch("/upload-multi-doc", {
       method: "POST",
       body: formData,
     });
@@ -104,7 +104,7 @@ export default function MultiDocVoiceChat() {
 
     if (docToRemove?.blob_name) {
       try {
-        await fetch("http://localhost:5000/delete-blob", {
+        await fetch("/delete-blob", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ blob_name: docToRemove.blob_name })
