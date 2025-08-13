@@ -51,7 +51,7 @@ def get_embedding(text):
 def push_chunks_to_search(chunks, source_name, blob_name=None):
     """
     Push chunks or a single string to Azure Cognitive Search.
-    Supports optional 'blob_name' (used for deletion later).
+    Supports optional 'blob_name' (used for deletion and filtering).
     """
     if isinstance(chunks, str):
         chunks = [chunks]
@@ -68,13 +68,19 @@ def push_chunks_to_search(chunks, source_name, blob_name=None):
         if blob_name:
             metadata_val += f";blob:{blob_name}"
 
-        documents.append({
+        doc = {
             "@search.action": "upload",
             "id": str(uuid.uuid4()),
             "content": chunk,
             "embedding": vector,
             "metadata": metadata_val
-        })
+        }
+
+        # ✅ Add blob_name field to match index schema
+        if blob_name:
+            doc["blob_name"] = blob_name
+
+        documents.append(doc)
 
     if not documents:
         print("❌ No documents to upload to Azure Search.")
@@ -93,11 +99,11 @@ def push_chunks_to_search(chunks, source_name, blob_name=None):
         print("❌ Failed to upload to Azure Cognitive Search.")
 
 # 🚀 Run Everything Together
-def process_pdf(pdf_path):
+def process_pdf(pdf_path, blob_name=None):
     chunks = extract_chunks(pdf_path)
     print(f"✅ Extracted {len(chunks)} chunks from PDF")
-    push_chunks_to_search(chunks, source_name=os.path.basename(pdf_path))
+    push_chunks_to_search(chunks, source_name=os.path.basename(pdf_path), blob_name=blob_name)
 
 if __name__ == "__main__":
     test_path = r"D:\TRAIL\pdf-extractor\pdf-backend\Sample.pdf.pdf"
-    process_pdf(test_path)
+    process_pdf(test_path, blob_name="sample_blob_123")

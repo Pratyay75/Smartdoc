@@ -442,8 +442,8 @@ import chardet
 def upload_multi_doc():
     """
     Accept multiple documents, upload them to Azure Blob Storage,
-    process them into chunks, send to Azure Search (with blob_name in metadata),
-    and return metadata for frontend.
+    process them into chunks, send to Azure Search (with blob_name in metadata)
+    using batched embedding requests for speed, and return metadata for frontend.
     """
     try:
         if "files" not in request.files:
@@ -458,6 +458,87 @@ def upload_multi_doc():
         blob_service = BlobServiceClient.from_connection_string(BLOB_CONN_STR)
         container_client = blob_service.get_container_client(BLOB_CONTAINER)
 
+        # --- Helper: batch embeddings ---
+        import requests
+        def get_embeddings_batch(chunk_list):
+            """Get embeddings for multiple chunks in one API call."""
+            data = {
+                "input": chunk_list,
+                "model": os.getenv("AZURE_EMBEDDING_DEPLOYMENT")
+            }
+            EMBEDDING_URL = f"{os.getenv('AZURE_OPENAI_ENDPOINT')}openai/deployments/{os.getenv('AZURE_EMBEDDING_DEPLOYMENT')}/embeddings?api-version={os.getenv('AZURE_API_VERSION')}"
+            EMBEDDING_HEADERS = {
+                "api-key": os.getenv("AZURE_OPENAI_API_KEY"),
+                "Content-Type": "application/json"
+            }
+            res = requests.post(EMBEDDING_URL, headers=EMBEDDING_HEADERS, json=data)
+            if res.status_code == 200:
+                return [item['embedding'] for item in res.json()['data']]
+            else:
+                print("❌ Embedding batch failed:", res.text)
+                return [[] for _ in chunk_list]
+
+        def push_chunks_to_search_batched(chunks, source_name, blob_name=None, batch_size=20):
+            """
+            Push chunks to Azure Cognitive Search with batched embedding requests.
+            """
+            if isinstance(chunks, str):
+                chunks = [chunks]
+
+            documents = []
+            total_chunks = len(chunks)
+
+            SEARCH_URL = f"{os.getenv('AZURE_SEARCH_ENDPOINT')}/indexes/{os.getenv('AZURE_SEARCH_INDEX')}/docs/index?api-version=2023-07-01-Preview"
+            SEARCH_HEADERS = {
+                "Content-Type": "application/json",
+                "api-key": os.getenv("AZURE_SEARCH_API_KEY")
+            }
+
+            # Process in batches
+            for start in range(0, total_chunks, batch_size):
+                batch_chunks = chunks[start:start + batch_size]
+                print(f"🔄 Processing batch {start//batch_size + 1} "
+                      f"({len(batch_chunks)} chunks) from {source_name}")
+
+                vectors = get_embeddings_batch(batch_chunks)
+                for chunk_text, vector in zip(batch_chunks, vectors):
+                    if not vector:
+                        print("❌ Skipping chunk due to missing embedding")
+                        continue
+
+                    metadata_val = f"source:{source_name}"
+                    if blob_name:
+                        metadata_val += f";blob:{blob_name}"
+
+                    doc = {
+                        "@search.action": "upload",
+                        "id": str(uuid.uuid4()),
+                        "content": chunk_text,
+                        "embedding": vector,
+                        "metadata": metadata_val
+                    }
+                    if blob_name:
+                        doc["blob_name"] = blob_name
+
+                    documents.append(doc)
+
+            if not documents:
+                print("❌ No documents to upload to Azure Search.")
+                return
+
+            payload = {"value": documents}
+            res = requests.post(SEARCH_URL, headers=SEARCH_HEADERS, json=payload)
+
+            print("🔍 Azure Search Response:")
+            print("Status Code:", res.status_code)
+            print("Response Body:", res.text)
+
+            if res.status_code == 200:
+                print("✅ Chunks uploaded to Azure Cognitive Search successfully.")
+            else:
+                print("❌ Failed to upload to Azure Cognitive Search.")
+
+        # --- Main file loop ---
         for file in uploaded_files:
             filename = secure_filename(file.filename)
             ext = filename.lower().split(".")[-1]
@@ -484,19 +565,15 @@ def upload_multi_doc():
             else:
                 os.unlink(file_path)
                 continue
- 
-           #assification sample
-            
-            
- 
+
             # upload to blob
             blob_name = f"{uuid.uuid4()}_{filename}"
             with open(file_path, "rb") as data:
                 blob_client = container_client.get_blob_client(blob_name)
                 blob_client.upload_blob(data, overwrite=True)
 
-            # push to search with blob_name
-            push_chunks_to_search(
+            # push to search with blob_name (batched)
+            push_chunks_to_search_batched(
                 chunks,
                 source_name=filename,
                 blob_name=blob_name
@@ -520,6 +597,7 @@ def upload_multi_doc():
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
 
 def delete_search_docs_by_blob(blob_name):
     """Delete all docs from Azure Search that match blob_name in metadata."""
@@ -680,37 +758,48 @@ Help the user by answering their question **only using the content of the provid
         logging.error(f"❌ Error in chatbot: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-
 @app.route("/chat-multi-doc", methods=["POST"])
 def chat_multi_doc():
     """
     Chatbot for multi-document context using Azure Search RAG.
-    Does NOT rely on pdf_id; uses all docs uploaded in this session/index.
+    Filters search results by blob_names if provided.
     """
     try:
         data = request.json
         question = data.get("question", "").strip()
+        blob_names = data.get("blob_names", [])
+
         if not question:
             return jsonify({"error": "No question provided"}), 400
 
-        # Search across all indexed documents
-        search_chunks = query_azure_search(question, top_k=6)
+        # Build Azure Search filter if blob_names provided
+        filter_query = None
+        if blob_names:
+            filter_parts = [f"blob_name eq '{name}'" for name in blob_names]
+            filter_query = " or ".join(filter_parts)
+
+        # Search Azure with optional filter
+        url = f"{AZURE_SEARCH_ENDPOINT}/indexes/{AZURE_SEARCH_INDEX}/docs/search?api-version=2023-07-01-Preview"
+        headers = {"Content-Type": "application/json", "api-key": AZURE_SEARCH_KEY}
+        body = {
+            "search": question,
+            "top": 20
+        }
+        if filter_query:
+            body["filter"] = filter_query
+
+        response = requests.post(url, headers=headers, json=body)
+        response.raise_for_status()
+        hits = response.json().get("value", [])
+        search_chunks = [doc["content"] for doc in hits if "content" in doc]
 
         if not search_chunks:
             return jsonify({"answer": "I couldn't find any relevant information in the uploaded documents."})
 
+        # Join chunks and send to Azure OpenAI
         full_text = "\n\n---\n\n".join(search_chunks)
-
         prompt = f"""
-You are  —Chatbot a smart, human-like assistant trained to help users understand complex documents (contracts, invoices, insurance policies, reports, etc.).
-
-🎯 Goal:
-Help the user by answering **only using the provided document content**. Be clear, friendly, and accurate.
-
-🧠 Behavior Rules:
-- Do NOT guess. If unsure, politely say you cannot find the answer.
-- Use bullet points, numbered steps, or short sentences based on the question type.
-- Be professional but conversational.
+You are Chatbot, a helpful assistant answering based only on the provided documents.
 
 📄 Document Content:
 {full_text}
@@ -721,7 +810,7 @@ Help the user by answering **only using the provided document content**. Be clea
 💬 Answer:
 """
 
-        response = client_azure.chat.completions.create(
+        llm_response = client_azure.chat.completions.create(
             model=DEPLOYMENT_NAME,
             messages=[
                 {"role": "system", "content": "You are a helpful assistant answering based on multiple documents."},
@@ -730,8 +819,7 @@ Help the user by answering **only using the provided document content**. Be clea
             temperature=0.5
         )
 
-        answer = response.choices[0].message.content.strip()
-        return jsonify({"answer": answer})
+        return jsonify({"answer": llm_response.choices[0].message.content.strip()})
 
     except Exception as e:
         logging.error(f"❌ Error in chat_multi_doc: {str(e)}")
@@ -1020,5 +1108,5 @@ def index():
 
 
 # ------------------ START SERVER ------------------
-#if __name__ == "__main__": 
- #   app.run(debug=True)
+if __name__ == "__main__": 
+    app.run(debug=True)

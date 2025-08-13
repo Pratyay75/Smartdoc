@@ -20,7 +20,7 @@ headers = {
 # URL to create index
 url = f"{search_endpoint}/indexes/{index_name}?api-version=2023-07-01-Preview"
 
-# Define the index structure (no category)
+# Define the index structure (added blob_name as filterable)
 index_config = {
     "name": index_name,
     "fields": [
@@ -33,7 +33,18 @@ index_config = {
             "dimensions": 1536,
             "vectorSearchConfiguration": "default"  # old syntax for your API version
         },
-        {"name": "metadata", "type": "Edm.String", "searchable": True}
+        {"name": "metadata", "type": "Edm.String", "searchable": True},
+
+        # ✅ New field for multi-doc filtering
+        {
+            "name": "blob_name",
+            "type": "Edm.String",
+            "searchable": False,
+            "filterable": True,
+            "retrievable": True,
+            "sortable": False,
+            "facetable": False
+        }
     ],
     "vectorSearch": {
         "algorithmConfigurations": [

@@ -1,21 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './Chatbot.css';
 
-const ChatBot = ({ pdfId = null, contextType = "single-pdf" }) => {
+const ChatBot = ({ pdfId = null, contextType = "single-pdf", blobNames = [] }) => {
   const [chatOpen, setChatOpen] = useState(false);
-const [messages, setMessages] = useState([
-  { sender: 'bot', text: contextType === "single-pdf"
-      ? "Hey! I'm AI assistant 🤖. Ready to explore your PDF in style?"
-      : "Hey! I can search across all uploaded documents. What do you want to know?"
-  },
-  ...(contextType === "single-pdf" ? [{ sender: 'suggestions' }] : [])
-]);
+  const [messages, setMessages] = useState([
+    { sender: 'bot', text: contextType === "single-pdf"
+        ? "Hey! I'm AI assistant 🤖. Ready to explore your PDF in style?"
+        : "Hey! I can search across all uploaded documents. What do you want to know?"
+    },
+    ...(contextType === "single-pdf" ? [{ sender: 'suggestions' }] : [])
+  ]);
 
   const [userInput, setUserInput] = useState('');
   const recognitionRef = useRef(null);
-const chatBodyRef = useRef(null);
+  const chatBodyRef = useRef(null);
 
-  // PDF Extractor page options
   const pdfOptions = [
     { icon: '📝', label: 'Summarize in 3 points', value: 'Summarize in 3 points' },
     { icon: '📅', label: 'Find all important dates', value: 'List all key dates from PDF' },
@@ -23,20 +22,16 @@ const chatBodyRef = useRef(null);
     { icon: '📌', label: 'Highlight key terms', value: 'What are the main clauses and terms?' },
   ];
 
-  // Multi-doc page options
-// Multi-doc page options removed
-const multiDocOptions = [];
-
-
+  const multiDocOptions = [];
   const currentOptions = contextType === "single-pdf" ? pdfOptions : multiDocOptions;
-useEffect(() => {
-  if (chatBodyRef.current) {
-    chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
-  }
-}, [messages]);
+
+  useEffect(() => {
+    if (chatBodyRef.current) {
+      chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
+    }
+  }, [messages]);
 
   const sendToBackend = (question) => {
-    // For PDF Extractor, pdfId is required
     if (contextType === "single-pdf" && !pdfId) {
       setMessages(prev => [
         ...prev,
@@ -49,24 +44,23 @@ useEffect(() => {
     setMessages(prev => [...prev, { sender: 'bot', text: '...', loading: true }]);
 
     const BACKEND_URL = window.location.hostname.includes("localhost")
-  ? "http://localhost:5000"
-  : "https://smartdoc-ebf9a0eddvd0ecet.eastus-01.azurewebsites.net";
+      ? "http://localhost:5000"
+      : "https://smartdoc-ebf9a0eddvd0ecet.eastus-01.azurewebsites.net";
 
+    const route = contextType === "multi-doc" 
+      ? `${BACKEND_URL}/chat-multi-doc` 
+      : `${BACKEND_URL}/chat`;
 
-const route = contextType === "multi-doc" 
-  ? `${BACKEND_URL}/chat-multi-doc` 
-  : `${BACKEND_URL}/chat`;
+    const payload =
+      contextType === "multi-doc"
+        ? { question, blob_names: blobNames } // ✅ send blob_names here
+        : { question, pdf_id: pdfId };
 
-const payload =
-  contextType === "multi-doc"
-    ? { question } // no pdfId needed
-    : { question, pdf_id: pdfId }; // pdfId needed for single-pdf
-
-fetch(route, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-})
+    fetch(route, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
       .then(res => res.json())
       .then(data => {
         setMessages(prev => [
@@ -97,7 +91,6 @@ fetch(route, {
     setUserInput('');
   };
 
-  // 🎤 Voice Recognition
   const startListening = () => {
     if (!('webkitSpeechRecognition' in window)) {
       alert("Your browser doesn't support speech recognition.");
@@ -130,7 +123,6 @@ fetch(route, {
           </div>
 
           <div className="chatbot-body" ref={chatBodyRef}>
-
             {messages.map((msg, idx) => (
               msg.sender === 'suggestions' ? (
                 <div key={idx} className="chatbot-suggestions">
