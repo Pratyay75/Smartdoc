@@ -33,6 +33,20 @@ CORS(app, supports_credentials=True, resources={r"/*": {
     "methods": ["GET", "POST", "OPTIONS", "PUT", "DELETE"]
 }})
 
+# -------------- Azure OpenAI & Azure Search Config --------------
+EMBEDDING_URL = f"{os.getenv('AZURE_OPENAI_ENDPOINT')}openai/deployments/{os.getenv('AZURE_EMBEDDING_DEPLOYMENT')}/embeddings?api-version={os.getenv('AZURE_API_VERSION')}"
+EMBEDDING_HEADERS = {
+    "api-key": os.getenv("AZURE_OPENAI_API_KEY"),
+    "Content-Type": "application/json"
+}
+
+SEARCH_HEADERS = {
+    "Content-Type": "application/json",
+    "api-key": os.getenv("AZURE_SEARCH_API_KEY")
+}
+
+
+#----------------------------------------
 
 logging.basicConfig(level=logging.INFO)
 
@@ -431,246 +445,6 @@ def save():
 
 
 
-# ------------------ Multi-doc upload route ------------------
-from werkzeug.utils import secure_filename
-import tempfile
-import fitz  # PyMuPDF
-import docx
-import chardet
-
-@app.route("/upload-multi-doc", methods=["POST"])
-def upload_multi_doc():
-    """
-    Accept multiple documents, upload them to Azure Blob Storage,
-    process them into chunks, send to Azure Search (with blob_name in metadata)
-    using batched embedding requests for speed, and return metadata for frontend.
-    """
-    try:
-        if "files" not in request.files:
-            return jsonify({"error": "No files provided"}), 400
-
-        uploaded_files = request.files.getlist("files")
-        results = []
-
-        from azure.storage.blob import BlobServiceClient
-        BLOB_CONN_STR = os.getenv("AZURE_BLOB_CONNECTION_STRING")
-        BLOB_CONTAINER = os.getenv("AZURE_STORAGE_CONTAINER")
-        blob_service = BlobServiceClient.from_connection_string(BLOB_CONN_STR)
-        container_client = blob_service.get_container_client(BLOB_CONTAINER)
-
-        # --- Helper: batch embeddings ---
-        import requests
-        def get_embeddings_batch(chunk_list):
-            """Get embeddings for multiple chunks in one API call."""
-            data = {
-                "input": chunk_list,
-                "model": os.getenv("AZURE_EMBEDDING_DEPLOYMENT")
-            }
-            EMBEDDING_URL = f"{os.getenv('AZURE_OPENAI_ENDPOINT')}openai/deployments/{os.getenv('AZURE_EMBEDDING_DEPLOYMENT')}/embeddings?api-version={os.getenv('AZURE_API_VERSION')}"
-            EMBEDDING_HEADERS = {
-                "api-key": os.getenv("AZURE_OPENAI_API_KEY"),
-                "Content-Type": "application/json"
-            }
-            res = requests.post(EMBEDDING_URL, headers=EMBEDDING_HEADERS, json=data)
-            if res.status_code == 200:
-                return [item['embedding'] for item in res.json()['data']]
-            else:
-                print("❌ Embedding batch failed:", res.text)
-                return [[] for _ in chunk_list]
-
-        def push_chunks_to_search_batched(chunks, source_name, blob_name=None, batch_size=20):
-            """
-            Push chunks to Azure Cognitive Search with batched embedding requests.
-            """
-            if isinstance(chunks, str):
-                chunks = [chunks]
-
-            documents = []
-            total_chunks = len(chunks)
-
-            SEARCH_URL = f"{os.getenv('AZURE_SEARCH_ENDPOINT')}/indexes/{os.getenv('AZURE_SEARCH_INDEX')}/docs/index?api-version=2023-07-01-Preview"
-            SEARCH_HEADERS = {
-                "Content-Type": "application/json",
-                "api-key": os.getenv("AZURE_SEARCH_API_KEY")
-            }
-
-            # Process in batches
-            for start in range(0, total_chunks, batch_size):
-                batch_chunks = chunks[start:start + batch_size]
-                print(f"🔄 Processing batch {start//batch_size + 1} "
-                      f"({len(batch_chunks)} chunks) from {source_name}")
-
-                vectors = get_embeddings_batch(batch_chunks)
-                for chunk_text, vector in zip(batch_chunks, vectors):
-                    if not vector:
-                        print("❌ Skipping chunk due to missing embedding")
-                        continue
-
-                    metadata_val = f"source:{source_name}"
-                    if blob_name:
-                        metadata_val += f";blob:{blob_name}"
-
-                    doc = {
-                        "@search.action": "upload",
-                        "id": str(uuid.uuid4()),
-                        "content": chunk_text,
-                        "embedding": vector,
-                        "metadata": metadata_val
-                    }
-                    if blob_name:
-                        doc["blob_name"] = blob_name
-
-                    documents.append(doc)
-
-            if not documents:
-                print("❌ No documents to upload to Azure Search.")
-                return
-
-            payload = {"value": documents}
-            res = requests.post(SEARCH_URL, headers=SEARCH_HEADERS, json=payload)
-
-            print("🔍 Azure Search Response:")
-            print("Status Code:", res.status_code)
-            print("Response Body:", res.text)
-
-            if res.status_code == 200:
-                print("✅ Chunks uploaded to Azure Cognitive Search successfully.")
-            else:
-                print("❌ Failed to upload to Azure Cognitive Search.")
-
-        # --- Main file loop ---
-        for file in uploaded_files:
-            filename = secure_filename(file.filename)
-            ext = filename.lower().split(".")[-1]
-
-            # save temp file
-            with tempfile.NamedTemporaryFile(delete=False) as tmp:
-                file.save(tmp.name)
-                file_path = tmp.name
-
-            # extract text chunks
-            if ext == "pdf":
-                chunks = extract_chunks(file_path)
-            elif ext == "docx":
-                import docx
-                docx_doc = docx.Document(file_path)
-                chunks = [p.text for p in docx_doc.paragraphs if p.text.strip()]
-            elif ext == "txt":
-                import chardet
-                with open(file_path, "rb") as f:
-                    raw_data = f.read()
-                    detected_encoding = chardet.detect(raw_data)["encoding"] or "utf-8"
-                    text_content = raw_data.decode(detected_encoding, errors="ignore")
-                chunks = [p.strip() for p in text_content.split("\n\n") if p.strip()]
-            else:
-                os.unlink(file_path)
-                continue
-
-            # upload to blob
-            blob_name = f"{uuid.uuid4()}_{filename}"
-            with open(file_path, "rb") as data:
-                blob_client = container_client.get_blob_client(blob_name)
-                blob_client.upload_blob(data, overwrite=True)
-
-            # push to search with blob_name (batched)
-            push_chunks_to_search_batched(
-                chunks,
-                source_name=filename,
-                blob_name=blob_name
-            )
-
-            # prepare return data
-            size_kb = round(os.path.getsize(file_path) / 1024, 1)
-            results.append({
-                "name": filename,
-                "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "status": "Uploaded",
-                "size": f"{size_kb} KB",
-                "blob_name": blob_name
-            })
-
-            os.unlink(file_path)
-
-        return jsonify({"documents": results})
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
-def delete_search_docs_by_blob(blob_name):
-    """Delete all docs from Azure Search that match blob_name in metadata."""
-    try:
-        search_url = f"{os.getenv('AZURE_SEARCH_ENDPOINT')}/indexes/{os.getenv('AZURE_SEARCH_INDEX')}/docs/search?api-version=2023-07-01-Preview"
-        headers = {"Content-Type": "application/json", "api-key": os.getenv("AZURE_SEARCH_API_KEY")}
-        body = {"search": blob_name, "top": 1000}
-        res = requests.post(search_url, headers=headers, json=body)
-        if res.status_code != 200:
-            print("Search query failed for blob deletion:", res.text)
-            return False
-
-        hits = res.json().get("value", [])
-        ids = [d.get("id") for d in hits if d.get("id")]
-        if not ids:
-            return True
-
-        delete_payload = {"value": [{"@search.action": "delete", "id": doc_id} for doc_id in ids]}
-        update_url = f"{os.getenv('AZURE_SEARCH_ENDPOINT')}/indexes/{os.getenv('AZURE_SEARCH_INDEX')}/docs/index?api-version=2023-07-01-Preview"
-        res2 = requests.post(update_url, headers=headers, json=delete_payload)
-        return res2.status_code in (200, 201)
-    except Exception as e:
-        print("Error in delete_search_docs_by_blob:", e)
-        return False
-
-
-@app.route("/delete-blob", methods=["POST"])
-def delete_blob_route():
-    """Delete a single blob and its related Azure Search docs."""
-    try:
-        data = request.get_json(force=True)
-        blob_name = data.get("blob_name")
-        if not blob_name:
-            return jsonify({"error": "Missing blob_name"}), 400
-
-        from azure.storage.blob import BlobServiceClient
-        BLOB_CONN_STR = os.getenv("AZURE_BLOB_CONNECTION_STRING")
-        BLOB_CONTAINER = os.getenv("AZURE_STORAGE_CONTAINER")
-        blob_service = BlobServiceClient.from_connection_string(BLOB_CONN_STR)
-        container_client = blob_service.get_container_client(BLOB_CONTAINER)
-        container_client.delete_blob(blob_name)
-
-        delete_search_docs_by_blob(blob_name)
-
-        return jsonify({"message": f"Blob {blob_name} deleted"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/delete-multiple-blobs", methods=["POST"])
-def delete_multiple_blobs_route():
-    """Delete multiple blobs and their related Azure Search docs."""
-    try:
-        data = request.get_json(force=True)
-        blob_names = data.get("blob_names", [])
-        if not blob_names:
-            return jsonify({"error": "Missing blob_names list"}), 400
-
-        from azure.storage.blob import BlobServiceClient
-        BLOB_CONN_STR = os.getenv("AZURE_BLOB_CONNECTION_STRING")
-        BLOB_CONTAINER = os.getenv("AZURE_STORAGE_CONTAINER")
-        blob_service = BlobServiceClient.from_connection_string(BLOB_CONN_STR)
-        container_client = blob_service.get_container_client(BLOB_CONTAINER)
-
-        for blob_name in blob_names:
-            container_client.delete_blob(blob_name)
-            delete_search_docs_by_blob(blob_name)
-
-        return jsonify({"message": "All blobs deleted"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
 
 # ------------------ CHATBOT ------------------
 def query_azure_search(question, top_k=5):
@@ -758,72 +532,7 @@ Help the user by answering their question **only using the content of the provid
         logging.error(f"❌ Error in chatbot: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-@app.route("/chat-multi-doc", methods=["POST"])
-def chat_multi_doc():
-    """
-    Chatbot for multi-document context using Azure Search RAG.
-    Filters search results by blob_names if provided.
-    """
-    try:
-        data = request.json
-        question = data.get("question", "").strip()
-        blob_names = data.get("blob_names", [])
 
-        if not question:
-            return jsonify({"error": "No question provided"}), 400
-
-        # Build Azure Search filter if blob_names provided
-        filter_query = None
-        if blob_names:
-            filter_parts = [f"blob_name eq '{name}'" for name in blob_names]
-            filter_query = " or ".join(filter_parts)
-
-        # Search Azure with optional filter
-        url = f"{AZURE_SEARCH_ENDPOINT}/indexes/{AZURE_SEARCH_INDEX}/docs/search?api-version=2023-07-01-Preview"
-        headers = {"Content-Type": "application/json", "api-key": AZURE_SEARCH_KEY}
-        body = {
-            "search": question,
-            "top": 20
-        }
-        if filter_query:
-            body["filter"] = filter_query
-
-        response = requests.post(url, headers=headers, json=body)
-        response.raise_for_status()
-        hits = response.json().get("value", [])
-        search_chunks = [doc["content"] for doc in hits if "content" in doc]
-
-        if not search_chunks:
-            return jsonify({"answer": "I couldn't find any relevant information in the uploaded documents."})
-
-        # Join chunks and send to Azure OpenAI
-        full_text = "\n\n---\n\n".join(search_chunks)
-        prompt = f"""
-You are Chatbot, a helpful assistant answering based only on the provided documents.
-
-📄 Document Content:
-{full_text}
-
-❓ Question:
-{question}
-
-💬 Answer:
-"""
-
-        llm_response = client_azure.chat.completions.create(
-            model=DEPLOYMENT_NAME,
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant answering based on multiple documents."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.5
-        )
-
-        return jsonify({"answer": llm_response.choices[0].message.content.strip()})
-
-    except Exception as e:
-        logging.error(f"❌ Error in chat_multi_doc: {str(e)}")
-        return jsonify({"error": str(e)}), 500
 
 
 #-------------------analytics---------------
@@ -1099,9 +808,302 @@ def compare_pdfs():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
+# ------------------ MULTI-DOC UPLOAD ------------------
+from azure.storage.blob import BlobServiceClient
+import tempfile
 
-#-----------------------------------
+@app.route("/upload-multi-doc", methods=["POST"])
+def upload_multi_doc():
+    try:
+        files = request.files.getlist("files")
+        if not files:
+            return jsonify({"error": "No files provided"}), 400
 
+        BLOB_CONN_STR = os.getenv("AZURE_BLOB_CONNECTION_STRING")
+        BLOB_CONTAINER = os.getenv("AZURE_STORAGE_CONTAINER")
+        blob_service = BlobServiceClient.from_connection_string(BLOB_CONN_STR)
+        container_client = blob_service.get_container_client(BLOB_CONTAINER)
+
+        uploaded_docs = []
+
+        for file in files:
+            filename = file.filename
+            blob_name = f"{uuid.uuid4()}_{filename.replace(' ', '_')}"
+            blob_client = container_client.get_blob_client(blob_name)
+            blob_client.upload_blob(file, overwrite=True)
+            logging.info(f"✅ Uploaded to Azure Blob: {blob_name}")
+
+            # Reset file pointer for text extraction
+            file.stream.seek(0)
+            file_bytes = file.read()
+
+            status = "Uploaded"
+            try:
+                from ingest_multi_doc import process_blob
+                process_blob(blob_name, filename)  # pass filename for better logging
+            except Exception as ingest_err:
+                logging.error(f"❌ Failed to process {filename}: {str(ingest_err)}")
+                status = "Failed"
+
+            uploaded_docs.append({
+                "name": filename,
+                "date": datetime.utcnow().strftime("%d-%m-%Y %H:%M"),
+                "status": status,
+                "size": f"{len(file_bytes) / 1024:.1f} KB",
+                "blob_name": blob_name
+            })
+
+        return jsonify({"documents": uploaded_docs})
+
+    except Exception as e:
+        logging.error(f"❌ Multi-doc upload error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+from flask import request, jsonify
+from azure.storage.blob import BlobServiceClient
+import os, requests, logging
+
+SEARCH_HEADERS = {
+    "Content-Type": "application/json",
+    "api-key": os.getenv("AZURE_SEARCH_API_KEY")
+}
+
+def get_doc_ids_by_blob(blob_name):
+    """
+    Query Azure Search to get all document IDs for a given blob name.
+    Escapes single quotes for OData.
+    """
+    safe_blob = blob_name.replace("'", "''")
+    search_url = f"{os.getenv('AZURE_SEARCH_ENDPOINT')}/indexes/{os.getenv('AZURE_MULTI_DOC_INDEX')}/docs/search?api-version=2023-07-01-Preview"
+    query_payload = {
+        "filter": f"metadata eq 'source:{safe_blob}'",
+        "select": "id",
+        "top": 1000
+    }
+    res = requests.post(search_url, headers=SEARCH_HEADERS, json=query_payload)
+    if res.status_code == 200:
+        docs = res.json().get("value", [])
+        return [doc["id"] for doc in docs]
+    else:
+        logging.error(f"❌ Failed to get doc IDs from Azure Search for {blob_name}: {res.text}")
+        return []
+
+def delete_from_search(blob_name):
+    """Delete all indexed chunks in Azure Search for a given blob."""
+    doc_ids = get_doc_ids_by_blob(blob_name)
+    if not doc_ids:
+        logging.warning(f"⚠ No matching chunks found in Azure Search for blob {blob_name}")
+        return
+
+    delete_url = f"{os.getenv('AZURE_SEARCH_ENDPOINT')}/indexes/{os.getenv('AZURE_MULTI_DOC_INDEX')}/docs/index?api-version=2023-07-01-Preview"
+    delete_payload = {
+        "value": [{"@search.action": "delete", "id": doc_id} for doc_id in doc_ids]
+    }
+    res = requests.post(delete_url, headers=SEARCH_HEADERS, json=delete_payload)
+    logging.info(f"🔄 Azure Search delete response for {blob_name}: {res.status_code} - {res.text}")
+
+
+@app.route("/delete-blob", methods=["POST"])
+def delete_blob():
+    try:
+        data = request.get_json()
+        blob_name = data.get("blob_name")
+        if not blob_name:
+            return jsonify({"error": "Missing blob_name"}), 400
+
+        # ---------- 1. Delete from Azure Blob ----------
+        BLOB_CONN_STR = os.getenv("AZURE_BLOB_CONNECTION_STRING")
+        BLOB_CONTAINER = os.getenv("AZURE_STORAGE_CONTAINER")
+        blob_service = BlobServiceClient.from_connection_string(BLOB_CONN_STR)
+        blob_client = blob_service.get_blob_client(BLOB_CONTAINER, blob_name)
+        blob_client.delete_blob()
+        logging.info(f"✅ Deleted blob: {blob_name}")
+
+        # ---------- 2. Delete from Azure Search ----------
+        delete_from_search(blob_name)
+
+        return jsonify({"message": f"Blob '{blob_name}' and its indexed chunks deleted successfully"})
+
+    except Exception as e:
+        logging.error(f"❌ Delete blob error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/delete-multiple-blobs", methods=["POST"])
+def delete_multiple_blobs():
+    try:
+        data = request.get_json()
+        blob_names = data.get("blob_names", [])
+        if not blob_names:
+            return jsonify({"error": "Missing blob_names list"}), 400
+
+        BLOB_CONN_STR = os.getenv("AZURE_BLOB_CONNECTION_STRING")
+        BLOB_CONTAINER = os.getenv("AZURE_STORAGE_CONTAINER")
+        blob_service = BlobServiceClient.from_connection_string(BLOB_CONN_STR)
+
+        deleted_count = 0
+        for blob_name in blob_names:
+            try:
+                blob_client = blob_service.get_blob_client(BLOB_CONTAINER, blob_name)
+                blob_client.delete_blob()
+                logging.info(f"✅ Deleted blob: {blob_name}")
+
+                delete_from_search(blob_name)
+                deleted_count += 1
+            except Exception as inner_err:
+                logging.error(f"❌ Failed to delete blob '{blob_name}': {str(inner_err)}")
+
+        return jsonify({"message": f"Deleted {deleted_count} blobs and cleaned up Azure Search"})
+
+    except Exception as e:
+        logging.error(f"❌ Delete multiple blobs error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+#----------------new chatbot----------------------
+import re
+
+def _tokenize(text):
+    return re.findall(r"[a-zA-Z0-9]+", (text or "").lower())
+
+def _score_chunk(chunk_text, q_tokens):
+    # simple term-frequency score
+    if not chunk_text:
+        return 0
+    text_tokens = _tokenize(chunk_text)
+    if not text_tokens:
+        return 0
+    hits = sum(text_tokens.count(t) for t in q_tokens if t)
+    return hits
+
+def select_top_chunks(docs, question, per_file_cap=8, total_cap=24):
+    """
+    docs: list of {"filename", "blob_name", "chunks": [ { "content": "..."} or "..." ]}
+    Returns a list of top chunks across selected docs.
+    """
+    q_tokens = _tokenize(question)
+    scored = []
+
+    for d in docs:
+        filename = d.get("filename") or d.get("name") or "document"
+        blob = d.get("blob_name")
+        raw_chunks = d.get("chunks", [])
+        # support both formats: list[str] or list[{"content": "..."}]
+        norm = []
+        for c in raw_chunks:
+            if isinstance(c, dict):
+                norm.append(c.get("content", ""))
+            else:
+                norm.append(str(c))
+
+        # per-file ranking
+        file_scored = []
+        for ch in norm:
+            s = _score_chunk(ch, q_tokens)
+            # slight boost if file name words appear
+            s += _score_chunk(filename, q_tokens) * 0.2
+            file_scored.append((s, filename, blob, ch))
+
+        # keep best N per file
+        file_scored.sort(key=lambda x: x[0], reverse=True)
+        scored.extend(file_scored[:per_file_cap])
+
+    # global cap
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = [dict(score=s, filename=f, blob_name=b, content=c) for s, f, b, c in scored[:total_cap]]
+    return top
+
+# ------------------ CHATBOT (Multi-Doc restricted) ------------------
+
+@app.route("/chat-multidoc", methods=["POST"])
+def chat_multidoc():
+    try:
+        data = request.get_json(force=True)
+        blob_names = data.get("blob_names", [])
+        question = data.get("question", "")
+
+        if not blob_names:
+            return jsonify({"error": "No blob_names provided"}), 400
+        if not question.strip():
+            return jsonify({"error": "Question is empty"}), 400
+
+        # 1️⃣ Get embedding of the question
+        embed_payload = {"input": question, "model": os.getenv("AZURE_EMBEDDING_DEPLOYMENT")}
+        embed_res = requests.post(EMBEDDING_URL, headers=EMBEDDING_HEADERS, json=embed_payload)
+        if embed_res.status_code != 200:
+            return jsonify({"error": "Embedding failed"}), 500
+        question_vector = embed_res.json()["data"][0]["embedding"]
+
+        # Escape blob_names for OData filter
+        safe_blob_names = [bn.replace("'", "''") for bn in blob_names]
+        filter_str = " or ".join([f"metadata eq 'source:{bn}'" for bn in safe_blob_names])
+
+        # 2️⃣ Query Azure Cognitive Search (Hybrid: keyword + vector)
+        search_payload = {
+            "search": question,
+            "vector": {
+                "value": question_vector,
+                "fields": "embedding",
+                "k": 20
+            },
+            "filter": filter_str,
+            "select": "content,metadata,filename"
+        }
+        search_url = f"{os.getenv('AZURE_SEARCH_ENDPOINT')}/indexes/{os.getenv('AZURE_MULTI_DOC_INDEX')}/docs/search?api-version=2023-07-01-Preview"
+        search_res = requests.post(search_url, headers=SEARCH_HEADERS, json=search_payload)
+        if search_res.status_code != 200:
+            return jsonify({"error": "Search failed"}), 500
+        hits = search_res.json().get("value", [])
+
+        if not hits:
+            return jsonify({"answer": "No relevant content found in the selected documents."})
+
+        # 3️⃣ Use top chunks directly (like single-PDF flow)
+        top_chunks = hits[:8]  # trust Cognitive Search ranking
+        context_text = "\n\n".join([h["content"] for h in top_chunks if "content" in h])
+
+        prompt = f"""
+You are —Chatbot a smart, human-like assistant trained to help users understand complex PDFs such as contracts, insurance policies, business reports, or legal documents.
+
+🎯 Your Goal:
+Help the user by answering their question **only using the content of the provided PDFs**. Be friendly, clear, and act like a real assistant — not a machine.
+
+---
+
+🧠 Behavior Rules:
+- Be professional, conversational, and accurate.
+- Use ONLY the content in the PDFs to answer.
+- If something is not clearly mentioned, say so politely.
+- If there is a table, use key-value pairs to answer.
+- Do not assume or guess beyond what’s written.
+
+Context:
+{context_text}
+
+Question:
+{question}
+
+Answer:
+"""
+
+        # 4️⃣ Ask Azure OpenAI
+        response = client_azure.chat.completions.create(
+            model=DEPLOYMENT_NAME,
+            messages=[
+                {"role": "system", "content": "Answer based only on the provided context."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0
+        )
+        answer = response.choices[0].message.content.strip()
+
+        return jsonify({"answer": answer})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+#----------------------------------------------------------------------
 @app.route("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")

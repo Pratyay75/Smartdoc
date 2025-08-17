@@ -1,3 +1,4 @@
+# create_multi_doc_index.py
 import requests
 import json
 import os
@@ -6,21 +7,17 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Configuration from .env
 search_endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
 search_api_key = os.getenv("AZURE_SEARCH_API_KEY")
-index_name = os.getenv("AZURE_SEARCH_INDEX")
+index_name = os.getenv("AZURE_MULTI_DOC_INDEX")  # <- separate index name in .env
 
-# Headers for request
 headers = {
     "Content-Type": "application/json",
     "api-key": search_api_key
 }
 
-# URL to create index
 url = f"{search_endpoint}/indexes/{index_name}?api-version=2023-07-01-Preview"
 
-# Define the index structure
 index_config = {
     "name": index_name,
     "fields": [
@@ -29,11 +26,12 @@ index_config = {
         {
             "name": "embedding",
             "type": "Collection(Edm.Single)",
-            "searchable": True,  # ✅ FIXED: must be searchable
-            "dimensions": 1536,  # ✅ FIXED: must be named "dimensions"
+            "searchable": True,
+            "dimensions": 1536,
             "vectorSearchConfiguration": "default"
         },
-        {"name": "metadata", "type": "Edm.String", "searchable": True}
+        {"name": "metadata", "type": "Edm.String", "searchable": True},   # "source:<blob_name>"
+        {"name": "filename", "type": "Edm.String", "searchable": True}    # ✅ Added field
     ],
     "vectorSearch": {
         "algorithmConfigurations": [
@@ -51,9 +49,9 @@ index_config = {
     }
 }
 
-# Call Azure Cognitive Search to create the index
 response = requests.put(url, headers=headers, data=json.dumps(index_config))
-
-# Output result
 print("Status Code:", response.status_code)
-print(response.json())
+try:
+    print(response.json())
+except Exception:
+    print("No JSON response returned")

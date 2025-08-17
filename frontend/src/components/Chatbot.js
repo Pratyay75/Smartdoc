@@ -1,38 +1,23 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import './Chatbot.css';
 
-const ChatBot = ({ pdfId = null, contextType = "single-pdf", blobNames = [] }) => {
+const ChatBot = ({ pdfId }) => {
   const [chatOpen, setChatOpen] = useState(false);
   const [messages, setMessages] = useState([
-    { sender: 'bot', text: contextType === "single-pdf"
-        ? "Hey! I'm AI assistant 🤖. Ready to explore your PDF in style?"
-        : "Hey! I can search across all uploaded documents. What do you want to know?"
-    },
-    ...(contextType === "single-pdf" ? [{ sender: 'suggestions' }] : [])
+    { sender: 'bot', text: "Hey! I'm AI assistant 🤖. Ready to explore your PDF in style?" },
+    { sender: 'suggestions' } // Show suggestions at the start
   ]);
-
   const [userInput, setUserInput] = useState('');
-  const recognitionRef = useRef(null);
-  const chatBodyRef = useRef(null);
 
-  const pdfOptions = [
+  const initialOptions = [
     { icon: '📝', label: 'Summarize in 3 points', value: 'Summarize in 3 points' },
     { icon: '📅', label: 'Find all important dates', value: 'List all key dates from PDF' },
     { icon: '👥', label: 'List parties involved', value: 'List all people or entities mentioned' },
     { icon: '📌', label: 'Highlight key terms', value: 'What are the main clauses and terms?' },
   ];
 
-  const multiDocOptions = [];
-  const currentOptions = contextType === "single-pdf" ? pdfOptions : multiDocOptions;
-
-  useEffect(() => {
-    if (chatBodyRef.current) {
-      chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
-    }
-  }, [messages]);
-
   const sendToBackend = (question) => {
-    if (contextType === "single-pdf" && !pdfId) {
+    if (!pdfId) {
       setMessages(prev => [
         ...prev,
         { sender: 'bot', text: "Please upload & extract a PDF first to chat." },
@@ -41,25 +26,15 @@ const ChatBot = ({ pdfId = null, contextType = "single-pdf", blobNames = [] }) =
       return;
     }
 
-    setMessages(prev => [...prev, { sender: 'bot', text: '...', loading: true }]);
+    setMessages(prev => [
+      ...prev,
+      { sender: 'bot', text: '...', loading: true }
+    ]);
 
-    const BACKEND_URL = window.location.hostname.includes("localhost")
-      ? "http://localhost:5000"
-      : "https://smartdoc-ebf9a0eddvd0ecet.eastus-01.azurewebsites.net";
-
-    const route = contextType === "multi-doc" 
-      ? `${BACKEND_URL}/chat-multi-doc` 
-      : `${BACKEND_URL}/chat`;
-
-    const payload =
-      contextType === "multi-doc"
-        ? { question, blob_names: blobNames } // ✅ send blob_names here
-        : { question, pdf_id: pdfId };
-
-    fetch(route, {
+    fetch("/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ pdf_id: pdfId, question }),
     })
       .then(res => res.json())
       .then(data => {
@@ -91,30 +66,12 @@ const ChatBot = ({ pdfId = null, contextType = "single-pdf", blobNames = [] }) =
     setUserInput('');
   };
 
-  const startListening = () => {
-    if (!('webkitSpeechRecognition' in window)) {
-      alert("Your browser doesn't support speech recognition.");
-      return;
-    }
-    recognitionRef.current = new window.webkitSpeechRecognition();
-    recognitionRef.current.lang = 'en-US';
-    recognitionRef.current.interimResults = false;
-    recognitionRef.current.maxAlternatives = 1;
-
-    recognitionRef.current.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      setUserInput('');
-      setMessages(prev => [...prev, { sender: 'user', text: transcript }]);
-      sendToBackend(transcript);
-    };
-
-    recognitionRef.current.start();
-  };
-
   return (
     <div className="chatbot-container">
       {!chatOpen ? (
-        <button className="chatbot-toggle" onClick={() => setChatOpen(true)}>💬</button>
+        <button className="chatbot-toggle" onClick={() => setChatOpen(true)}>
+          💬
+        </button>
       ) : (
         <div className="chatbot-box">
           <div className="chatbot-header">
@@ -122,11 +79,11 @@ const ChatBot = ({ pdfId = null, contextType = "single-pdf", blobNames = [] }) =
             <span className="close-icon" onClick={() => setChatOpen(false)}>×</span>
           </div>
 
-          <div className="chatbot-body" ref={chatBodyRef}>
+          <div className="chatbot-body">
             {messages.map((msg, idx) => (
               msg.sender === 'suggestions' ? (
                 <div key={idx} className="chatbot-suggestions">
-                  {currentOptions.map((opt, idx2) => (
+                  {initialOptions.map((opt, idx2) => (
                     <button key={idx2} onClick={() => handleOptionClick(opt.value)}>
                       {opt.icon} {opt.label}
                     </button>
@@ -161,7 +118,6 @@ const ChatBot = ({ pdfId = null, contextType = "single-pdf", blobNames = [] }) =
               value={userInput}
               onChange={(e) => setUserInput(e.target.value)}
             />
-            <button type="button" className="mic-btn" onClick={startListening}>🎤</button>
             <button type="submit">➤</button>
           </form>
         </div>

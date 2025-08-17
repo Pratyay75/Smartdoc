@@ -9,20 +9,30 @@ from azure.storage.blob import BlobServiceClient
 load_dotenv()
 
 # Configurations from .env
-BLOB_CONN_STR = f"DefaultEndpointsProtocol=https;AccountName={os.getenv('AZURE_STORAGE_ACCOUNT')};AccountKey={os.getenv('AZURE_STORAGE_KEY')};EndpointSuffix=core.windows.net"
+BLOB_CONN_STR = (
+    f"DefaultEndpointsProtocol=https;AccountName={os.getenv('AZURE_STORAGE_ACCOUNT')};"
+    f"AccountKey={os.getenv('AZURE_STORAGE_KEY')};EndpointSuffix=core.windows.net"
+)
 BLOB_CONTAINER = os.getenv('AZURE_STORAGE_CONTAINER')
 
-EMBEDDING_URL = f"{os.getenv('AZURE_OPENAI_ENDPOINT')}openai/deployments/{os.getenv('AZURE_EMBEDDING_DEPLOYMENT')}/embeddings?api-version={os.getenv('AZURE_API_VERSION')}"
+EMBEDDING_URL = (
+    f"{os.getenv('AZURE_OPENAI_ENDPOINT')}openai/deployments/"
+    f"{os.getenv('AZURE_EMBEDDING_DEPLOYMENT')}/embeddings?api-version={os.getenv('AZURE_API_VERSION')}"
+)
 EMBEDDING_HEADERS = {
     "api-key": os.getenv("AZURE_OPENAI_API_KEY"),
     "Content-Type": "application/json"
 }
 
-SEARCH_URL = f"{os.getenv('AZURE_SEARCH_ENDPOINT')}/indexes/{os.getenv('AZURE_SEARCH_INDEX')}/docs/index?api-version=2023-07-01-Preview"
+SEARCH_URL = (
+    f"{os.getenv('AZURE_SEARCH_ENDPOINT')}/indexes/{os.getenv('AZURE_SEARCH_INDEX')}"
+    f"/docs/index?api-version=2023-07-01-Preview"
+)
 SEARCH_HEADERS = {
     "Content-Type": "application/json",
     "api-key": os.getenv("AZURE_SEARCH_API_KEY")
 }
+
 
 # 📄 Extract Text Page-by-Page
 def extract_chunks(pdf_path):
@@ -33,6 +43,7 @@ def extract_chunks(pdf_path):
         if text:
             chunks.append(text)
     return chunks
+
 
 # 🧠 Get Embedding Vector for Each Chunk
 def get_embedding(text):
@@ -47,40 +58,23 @@ def get_embedding(text):
         print("❌ Embedding failed:", res.text)
         return []
 
-# 🔍 Push Chunk + Embedding to Azure Cognitive Search
-def push_chunks_to_search(chunks, source_name, blob_name=None):
-    """
-    Push chunks or a single string to Azure Cognitive Search.
-    Supports optional 'blob_name' (used for deletion and filtering).
-    """
-    if isinstance(chunks, str):
-        chunks = [chunks]
 
+# 🔍 Push Chunk + Embedding to Azure Cognitive Search
+def push_chunks_to_search(chunks, source_name):
     documents = []
     for i, chunk in enumerate(chunks):
-        print(f"🔄 Processing chunk {i+1}/{len(chunks)} (source={source_name})")
+        print(f"🔄 Processing chunk {i+1}/{len(chunks)}")
         vector = get_embedding(chunk)
         if not vector:
             print("❌ Skipping chunk due to missing embedding")
             continue
-
-        metadata_val = f"source:{source_name}"
-        if blob_name:
-            metadata_val += f";blob:{blob_name}"
-
-        doc = {
+        documents.append({
             "@search.action": "upload",
             "id": str(uuid.uuid4()),
             "content": chunk,
             "embedding": vector,
-            "metadata": metadata_val
-        }
-
-        # ✅ Add blob_name field to match index schema
-        if blob_name:
-            doc["blob_name"] = blob_name
-
-        documents.append(doc)
+            "metadata": f"source:{source_name}"
+        })
 
     if not documents:
         print("❌ No documents to upload to Azure Search.")
@@ -98,12 +92,16 @@ def push_chunks_to_search(chunks, source_name, blob_name=None):
     else:
         print("❌ Failed to upload to Azure Cognitive Search.")
 
+
 # 🚀 Run Everything Together
-def process_pdf(pdf_path, blob_name=None):
+def process_pdf(pdf_path):
     chunks = extract_chunks(pdf_path)
     print(f"✅ Extracted {len(chunks)} chunks from PDF")
-    push_chunks_to_search(chunks, source_name=os.path.basename(pdf_path), blob_name=blob_name)
+    push_chunks_to_search(chunks, source_name=os.path.basename(pdf_path))
 
+
+# testing ke liye sample uthao
 if __name__ == "__main__":
+    # You can still run this for manual testing
     test_path = r"D:\TRAIL\pdf-extractor\pdf-backend\Sample.pdf.pdf"
-    process_pdf(test_path, blob_name="sample_blob_123")
+    process_pdf(test_path)
