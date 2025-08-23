@@ -1442,19 +1442,11 @@ def delete_category():
 
     return jsonify({"message": f"Category '{name}' deleted successfully"})
 
-
-#----------------------------------------------------------------------
 @app.route("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
-<<<<<<< HEAD
 # ------------------ START SERVER ------------------
-# if __name__ == "__main__": 
-#    app.run(debug=True)
-=======
-# ------------------ Local k ------------------
 #if __name__ == "__main__": 
-#    app.run(debug=True)
->>>>>>> c49f6b8 (Updated , added features)
+ #   app.run(debug=True)
