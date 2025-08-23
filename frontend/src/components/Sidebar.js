@@ -1,8 +1,11 @@
-import React, { useEffect, useRef } from "react";
+// src/components/Sidebar.js
+import React, { useEffect, useRef, useState } from "react";
 import "./Sidebar.css";
-import { FiMenu, FiFileText, FiBarChart2, FiHome } from "react-icons/fi";
+import { FiMenu, FiFileText, FiBarChart2, FiHome, FiChevronDown, FiChevronRight } from "react-icons/fi";
+
 function Sidebar({ onNavigate, sidebarOpen, setSidebarOpen }) {
   const sidebarRef = useRef(null);
+  const [classifyOpen, setClassifyOpen] = useState(true);
 
   const handleToggle = () => {
     setSidebarOpen(!sidebarOpen);
@@ -38,22 +41,46 @@ function Sidebar({ onNavigate, sidebarOpen, setSidebarOpen }) {
           <div className="sidebar-option" onClick={() => onNavigate("pdf")}>
             <FiFileText /> <span>PDF Extractor</span>
           </div>
-          <div
-            className="sidebar-option"
-            onClick={() => onNavigate("analytics")}
-          >
+          <div className="sidebar-option" onClick={() => onNavigate("analytics")}>
             <FiBarChart2 /> <span>Data Analytics</span>
           </div>
+          <div className="sidebar-option" onClick={() => onNavigate("compare")}>
+            <FiBarChart2 /> <span>Compare PDF's</span>
+          </div>
+          <div className="sidebar-option" onClick={() => onNavigate("multi-doc-chat")}>
+            <FiFileText /> <span>Multi-Doc Processing</span>
+          </div>
+
+          {/* Classify group */}
           <div
             className="sidebar-option"
-            onClick={() => onNavigate("compare")}
+            onClick={() => setClassifyOpen((v) => !v)}
+            style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
           >
-            <FiBarChart2 /> <span>Compare PDF's</span>
-          </div>                   
-          <div className="sidebar-option" onClick={() => onNavigate("multi-doc-chat")}>
-  <FiFileText /> <span>Multi-Doc Processing</span>
-</div>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <FiBarChart2 /> <span>Classify Docs</span>
+            </span>
+            {classifyOpen ? <FiChevronDown /> : <FiChevronRight />}
+          </div>
 
+          {classifyOpen && (
+            <>
+              <div
+                className="sidebar-option"
+                style={{ paddingLeft: 28, fontSize: 14 }}
+                onClick={() => onNavigate("classify-route")}
+              >
+                <FiFileText /> <span>Classify & Route</span>
+              </div>
+              <div
+                className="sidebar-option"
+                style={{ paddingLeft: 28, fontSize: 14 }}
+                onClick={() => onNavigate("classify-manage")}
+              >
+                <FiFileText /> <span>Update / Add Categories</span>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

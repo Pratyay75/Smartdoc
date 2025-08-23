@@ -1103,12 +1103,358 @@ Answer:
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+#-----------------------------------------------------------------
+import os, re, chardet, fitz, smtplib, io, logging
+from email.mime.text import MIMEText
+from flask import request, jsonify, g
+from pymongo import MongoClient
+from datetime import datetime
+from bson import ObjectId
+
+try:
+    import docx
+except ImportError:
+    docx = None
+
+logging.basicConfig(level=logging.INFO)
+
+# ---------- MongoDB Setup ----------
+MONGO_URI = os.getenv("MONGO_URI")
+client = MongoClient(MONGO_URI)
+
+db = client["pdf_data"]
+categories_col = db["categories"]
+users_collection = db["users"]
+
+
+
+# ---------- Auth helper ----------
+@app.before_request
+def load_current_user():
+    if request.endpoint in ("login", "signup", "index", "static"):
+        return
+
+    auth_header = request.headers.get("Authorization")
+    g.user_id = None
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return
+
+    token = auth_header.split(" ")[1].strip()
+    try:
+        user = users_collection.find_one({"_id": ObjectId(token)})
+        if user:
+            g.user_id = user["email"]
+    except Exception as e:
+        logging.error(f"Auth error: {e}")
+
+def _safe_lower(s: str) -> str:
+    return (s or "").lower()
+
+
+EMAIL_REGEX = re.compile(r"(?i)^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$")
+OTHER = "Other"
+
+# ---------- Extract text ----------
+def extract_text_from_bytes(file_bytes: bytes, filename: str) -> str:
+    name = (filename or "").lower()
+    if name.endswith(".pdf"):
+        try:
+            doc = fitz.open(stream=file_bytes, filetype="pdf")
+            text = []
+            for page in doc:
+                txt = page.get_text() or ""
+                if txt.strip():
+                    text.append(txt)
+            doc.close()
+            return _safe_lower("\n".join(text))
+        except Exception as e:
+            logging.error(f"PDF read failed: {e}")
+    if name.endswith(".docx") and docx:
+        try:
+            d = docx.Document(io.BytesIO(file_bytes))
+            return _safe_lower(" ".join(p.text for p in d.paragraphs))
+        except Exception as e:
+            logging.error(f"DOCX read failed: {e}")
+    try:
+        det = chardet.detect(file_bytes or b"")
+        enc = det.get("encoding") or "utf-8"
+        return _safe_lower(file_bytes.decode(enc, errors="ignore"))
+    except Exception:
+        return _safe_lower(file_bytes.decode("utf-8", errors="ignore"))
+
+# ---------- AI Intent ----------
+try:
+    from openai import OpenAI
+    _openai_client = OpenAI()
+except Exception:
+    _openai_client = None
+
+def extract_intent(text: str) -> str:
+    snippet = (text or "")[:1500]
+    prompt = f"""
+You are an assistant that analyzes documents.
+Summarize the INTENT of this document in one clear sentence.
+Document:
+{snippet}
+""".strip()
+    if _openai_client is None:
+        return "General inquiry regarding the document content."
+    try:
+        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        resp = _openai_client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "Return exactly one concise sentence that captures the document's submission intent."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=60,
+        )
+        return (resp.choices[0].message.content or "").strip()
+    except Exception as e:
+        logging.error(f"Intent AI error: {e}")
+        return "General inquiry regarding the document content."
+
+# ---------- Classification ----------
+def classify_document(text: str, user_id: str):
+    # Fetch categories for this user
+    doc = categories_col.find_one({"user_id": user_id}, {"categories": 1})
+    if not doc or not doc.get("categories"):
+        return OTHER, None
+
+    scores = {}
+    for cat in doc["categories"]:
+        cname = (cat.get("name") or "").strip()
+        if not cname:
+            continue
+        scores[cname] = 0
+        for kw in cat.get("keywords", []):
+            kw = (kw or "").lower().strip()
+            if not kw:
+                continue
+            pattern = r"(?<!\w)" + re.escape(kw) + r"(?!\w)"
+            scores[cname] += len(re.findall(pattern, text))
+
+    if not scores:
+        return OTHER, None
+
+    best_cat = max(scores, key=scores.get)
+    if scores[best_cat] == 0:
+        return OTHER, None
+
+    for cat in doc["categories"]:
+        if (cat.get("name") or "").strip() == best_cat:
+            return best_cat, cat.get("receiver_email")
+
+    return OTHER, None
+
+
+# ---------- Email ----------
+def send_email(receiver, subject, body):
+    sender = "yashshrivastava5252@gmail.com"
+    try:
+        msg = MIMEText(body)
+        msg["Subject"] = subject
+        msg["From"] = sender
+        msg["To"] = receiver
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(sender, os.getenv("EMAIL_PASSWORD"))
+            server.send_message(msg)
+        logging.info(f" Email sent to {receiver}")
+        return True, None
+    except Exception as e:
+        logging.error(f"Email send failed: {e}")
+        return False, str(e)
+
+# ---------- Routes ----------
+@app.route("/classify-docs", methods=["POST"])
+def classify_docs():
+    if not g.user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    files = request.files.getlist("files")
+    if not files:
+        return jsonify({"error": "No files provided"}), 400
+
+    results = []
+    for fs in files:
+        filename = fs.filename or "document"
+        file_bytes = fs.read() or b""
+        text = extract_text_from_bytes(file_bytes, filename)
+
+        category, _receiver = classify_document(text, g.user_id)
+        # Always ensure a value
+        category = category or OTHER
+
+        intent = extract_intent(text)
+        results.append({
+            "name": filename,
+            "status": "Done",
+            "category": category,
+            "intent": intent
+        })
+
+    return jsonify({"results": results})
+
+
+@app.route("/send-classification", methods=["POST"])
+def send_classification():
+    if not g.user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(force=True)
+    name = data.get("name") or "Document"
+    category = data.get("category") or "Unclassified"
+    intent = data.get("intent") or ""
+    to_email = (data.get("to_email") or "").strip()
+    if not EMAIL_REGEX.match(to_email):
+        return jsonify({"error": "Valid recipient email required"}), 400
+
+    subject = f"Document classified as {category}"
+    body = f"Document '{name}' was classified as '{category}'.\n\nIntent: {intent}\n"
+    ok, err = send_email(to_email, subject, body)
+    if not ok:
+        return jsonify({"error": f"Email send failed: {err}"}), 500
+    return jsonify({"message": "Email sent"})
+
+@app.route("/update-categories", methods=["POST"])
+def update_categories():
+    if not g.user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json(force=True)
+    category_raw = (data.get("category") or "").strip()
+    keywords = data.get("keywords", [])
+    receiver_email_raw = (data.get("receiver_email") or "").strip()
+
+    if not category_raw or not keywords or not receiver_email_raw:
+        return jsonify({"error": "All fields required"}), 400
+
+    if not EMAIL_REGEX.match(receiver_email_raw):
+        return jsonify({"error": "Enter a valid receiver email"}), 400
+
+    name_lc = category_raw.lower()
+
+    # Check duplicate (case-insensitive)
+    doc = categories_col.find_one({"user_id": g.user_id}, {"categories": 1})
+    if doc and any((c.get("name_lc") or (c.get("name") or "").lower()) == name_lc
+                   for c in doc.get("categories", [])):
+        return jsonify({"error": "Category name must be unique"}), 409
+
+    # Normalize keywords (trim empty)
+    keywords = [str(k).strip() for k in keywords if str(k).strip()]
+
+    categories_col.update_one(
+        {"user_id": g.user_id},
+        {
+            "$setOnInsert": {"user_id": g.user_id},
+            "$push": {"categories": {
+                "name": category_raw,
+                "name_lc": name_lc,
+                "keywords": keywords,
+                "receiver_email": receiver_email_raw
+            }}
+        },
+        upsert=True
+    )
+    return jsonify({"message": "Category saved"})
+
+
+@app.route("/edit-category", methods=["PUT"])
+def edit_category():
+    if not g.user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json(force=True)
+    name = (data.get("name") or "").strip()
+    update = data.get("update", {}) or {}
+
+    set_payload = {}
+
+    # Validate receiver_email if present
+    if "receiver_email" in update:
+        new_recv = (update["receiver_email"] or "").strip()
+        if not EMAIL_REGEX.match(new_recv):
+            return jsonify({"error": "Enter a valid receiver email"}), 400
+        set_payload["categories.$.receiver_email"] = new_recv
+
+    # Validate & dedupe name if present
+    if "name" in update:
+        new_name = (update["name"] or "").strip()
+        if not new_name:
+            return jsonify({"error": "Category name cannot be empty"}), 400
+        new_lc = new_name.lower()
+
+        doc = categories_col.find_one({"user_id": g.user_id}, {"categories": 1})
+        if doc:
+            for c in doc.get("categories", []):
+                existing_lc = (c.get("name_lc") or (c.get("name") or "").lower())
+                # if another category already has this name
+                if existing_lc == new_lc and existing_lc != name.lower():
+                    return jsonify({"error": "Category name must be unique"}), 409
+
+        set_payload["categories.$.name"] = new_name
+        set_payload["categories.$.name_lc"] = new_lc
+
+    # Update keywords if present
+    if "keywords" in update:
+        kws = [str(k).strip() for k in (update["keywords"] or []) if str(k).strip()]
+        set_payload["categories.$.keywords"] = kws
+
+    if not set_payload:
+        return jsonify({"error": "Nothing to update"}), 400
+
+    result = categories_col.update_one(
+        {"user_id": g.user_id, "categories.name": name},
+        {"$set": set_payload}
+    )
+    if result.matched_count == 0:
+        return jsonify({"error": "Category not found"}), 404
+
+    return jsonify({"message": "Category updated"})
+
+
+@app.route("/get-categories", methods=["GET"])
+def get_categories():
+    if not g.user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    doc = categories_col.find_one({"user_id": g.user_id}, {"_id": 0, "categories": 1})
+    return jsonify({"categories": doc.get("categories", []) if doc else []})
+
+@app.route("/delete-category", methods=["DELETE"])
+def delete_category():
+    if not g.user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json(force=True)
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Category name required"}), 400
+
+    # Remove category from user's categories array
+    result = categories_col.update_one(
+        {"user_id": g.user_id},
+        {"$pull": {"categories": {"name": name}}}
+    )
+
+    if result.modified_count == 0:
+        return jsonify({"error": "Category not found"}), 404
+
+    return jsonify({"message": f"Category '{name}' deleted successfully"})
+
+
 #----------------------------------------------------------------------
 @app.route("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
+<<<<<<< HEAD
 # ------------------ START SERVER ------------------
 # if __name__ == "__main__": 
 #    app.run(debug=True)
+=======
+# ------------------ Local k ------------------
+#if __name__ == "__main__": 
+#    app.run(debug=True)
+>>>>>>> c49f6b8 (Updated , added features)

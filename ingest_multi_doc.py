@@ -15,10 +15,8 @@ logging.basicConfig(
 
 load_dotenv()
 
-BLOB_CONN_STR = (
-    f"DefaultEndpointsProtocol=https;AccountName={os.getenv('AZURE_STORAGE_ACCOUNT')};"
-    f"AccountKey={os.getenv('AZURE_STORAGE_KEY')};EndpointSuffix=core.windows.net"
-)
+BLOB_CONN_STR = os.getenv("AZURE_BLOB_CONNECTION_STRING")
+
 BLOB_CONTAINER = os.getenv("AZURE_STORAGE_CONTAINER")
 
 EMBEDDING_URL = (
