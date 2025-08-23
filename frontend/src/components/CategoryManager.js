@@ -32,7 +32,7 @@ export default function CategoryManager() {
 
   const refresh = async () => {
     try {
-      const res = await fetch("http://localhost:5000/get-categories", {
+      const res = await fetch("/get-categories", {
         headers: authHeaders(),
       });
       const data = await res.json();
