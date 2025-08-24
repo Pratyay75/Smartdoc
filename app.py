@@ -1184,8 +1184,12 @@ def extract_text_from_bytes(file_bytes: bytes, filename: str) -> str:
 
 # ---------- AI Intent ----------
 try:
-    from openai import OpenAI
-    _openai_client = OpenAI()
+    from openai import AzureOpenAI
+    _openai_client = AzureOpenAI(
+        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+        api_version=os.getenv("AZURE_API_VERSION", "2024-12-01-preview"),
+        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
+    )
 except Exception:
     _openai_client = None
 
@@ -1200,9 +1204,9 @@ Document:
     if _openai_client is None:
         return "General inquiry regarding the document content."
     try:
-        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        deployment = os.getenv("AZURE_GPT_DEPLOYMENT", "pdf-gpt")  # Azure deployment name
         resp = _openai_client.chat.completions.create(
-            model=model,
+            model=deployment,
             messages=[
                 {"role": "system", "content": "Return exactly one concise sentence that captures the document's submission intent."},
                 {"role": "user", "content": prompt},
@@ -1214,6 +1218,7 @@ Document:
     except Exception as e:
         logging.error(f"Intent AI error: {e}")
         return "General inquiry regarding the document content."
+
 
 # ---------- Classification ----------
 def classify_document(text: str, user_id: str):
