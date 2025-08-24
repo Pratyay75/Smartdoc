@@ -280,40 +280,43 @@ export default function ClassifyAndRoute() {
                     {row.toEmail || "—"}
                   </td>
 
-                  <td style={{ display: "flex", gap: 8 }}>
-                    <button
-                      className={`send-btn ${
-                        sendStatus[idx] === "sent"
-                          ? "sent-btn"
-                          : sendStatus[idx] === "failed"
-                          ? "failed-btn"
-                          : ""
-                      }`}
-                      onClick={() => handleSendEmail(idx)}
-                      disabled={
-                        !isValidEmail(row.toEmail || "") ||
-                        row.status !== "Done" ||
-                        sendStatus[idx] === "sending"
-                      }
-                    >
-                      {sendStatus[idx] === "sending" ? (
-                        <span className="spinner" />
-                      ) : sendStatus[idx] === "sent" ? (
-                        "Sent"
-                      ) : sendStatus[idx] === "failed" ? (
-                        "Failed"
-                      ) : (
-                        "Send"
-                      )}
-                    </button>
-                    <button
-                      className="remove-btn"
-                      onClick={() => removeRow(idx)}
-                      title="Remove row"
-                    >
-                      <FiTrash2 />
-                    </button>
-                  </td>
+                  <td>
+  <div className="action-actions">
+    <button
+      className={`send-btn ${
+        sendStatus[idx] === "sent"
+          ? "sent-btn"
+          : sendStatus[idx] === "failed"
+          ? "failed-btn"
+          : ""
+      }`}
+      onClick={() => handleSendEmail(idx)}
+      disabled={
+        !isValidEmail(row.toEmail || "") ||
+        row.status !== "Done" ||
+        sendStatus[idx] === "sending"
+      }
+    >
+      {sendStatus[idx] === "sending" ? (
+        <span className="spinner" />
+      ) : sendStatus[idx] === "sent" ? (
+        "Sent"
+      ) : sendStatus[idx] === "failed" ? (
+        "Failed"
+      ) : (
+        "Send"
+      )}
+    </button>
+    <button
+      className="remove-btn"
+      onClick={() => removeRow(idx)}
+      title="Remove row"
+    >
+      <FiTrash2 />
+    </button>
+  </div>
+</td>
+
                 </tr>
               ))
             )}

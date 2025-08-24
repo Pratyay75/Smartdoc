@@ -62,18 +62,18 @@ export default function CategoryManager() {
     const receiverTrim = newReceiver.trim();
 
     if (!nameTrim || !newKeywords.trim() || !receiverTrim) {
-      return alert("Please fill category name, keywords and receiver email.");
+      return console.log("Please fill category name, keywords and receiver email.");
     }
 
     // Check duplicate
     const existingNames = categories.map((c) => (c.name || "").toLowerCase());
     if (existingNames.includes(nameTrim.toLowerCase())) {
-      return alert("Category name must be unique.");
+      return console.log("Category name must be unique.");
     }
 
     // Check email format
     if (!isValidEmail(receiverTrim)) {
-      return alert("Please enter a valid receiver email.");
+      return console.log("Please enter a valid receiver email.");
     }
 
     setLoading(true);
@@ -95,10 +95,10 @@ export default function CategoryManager() {
 
       await refresh();
       clearAddForm();
-      alert("Category added!");
+      console.log("Category added!");
     } catch (e) {
       console.error(e);
-      alert(e.message || "Error adding category");
+      console.log(e.message || "Error adding category");
     } finally {
       setLoading(false);
     }
@@ -124,7 +124,7 @@ export default function CategoryManager() {
     const receiverTrim = editReceiver.trim();
 
     if (!nameTrim || !receiverTrim) {
-      return alert("Please fill category name and receiver email.");
+      return console.log("Please fill category name and receiver email.");
     }
 
     // Check duplicate (exclude the category we are editing)
@@ -132,12 +132,12 @@ export default function CategoryManager() {
       .filter((c) => c.name !== editNameOriginal)
       .map((c) => (c.name || "").toLowerCase());
     if (existingNames.includes(nameTrim.toLowerCase())) {
-      return alert("Category name must be unique.");
+      return console.log("Category name must be unique.");
     }
 
     // Check email format
     if (!isValidEmail(receiverTrim)) {
-      return alert("Please enter a valid receiver email.");
+      return console.log("Please enter a valid receiver email.");
     }
 
     setLoading(true);
@@ -162,10 +162,10 @@ export default function CategoryManager() {
 
       await refresh();
       cancelEdit();
-      alert("Category updated!");
+      console.log("Category updated!");
     } catch (e) {
       console.error(e);
-      alert(e.message || "Error editing category");
+      console.log(e.message || "Error editing category");
     } finally {
       setLoading(false);
     }
@@ -182,10 +182,10 @@ const handleDelete = async (name) => {
     if (!res.ok) throw new Error(data?.error || "Delete failed");
 
     await refresh();
-    alert("Category deleted!");
+    console.log("Category deleted!");
   } catch (e) {
     console.error(e);
-    alert(e.message || "Error deleting category");
+    console.log(e.message || "Error deleting category");
   }
 };
 
@@ -251,25 +251,26 @@ const handleDelete = async (name) => {
                   <td>{cat.name}</td>
                   <td>{(cat.keywords || []).join(", ")}</td>
                   <td>{cat.receiver_email || ""}</td>
-                 <td style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
-  {/* Delete icon */}
-  <button
-    className="remove-btn"
-    title="Delete Category"
-    onClick={() => handleDelete(cat.name)}
-  >
-    🗑️
-  </button>
+                 <td>
+  <div className="action-buttons">
+    <button
+      className="remove-btn"
+      title="Delete Category"
+      onClick={() => handleDelete(cat.name)}
+    >
+      🗑️
+    </button>
 
-  {/* 3-dots menu for edit */}
-  <button
-    className="dots-btn"
-    title="More Options"
-    onClick={() => startEdit(cat)}
-  >
-    ⋮
-  </button>
+    <button
+      className="dots-btn"
+      title="More Options"
+      onClick={() => startEdit(cat)}
+    >
+      ⋮
+    </button>
+  </div>
 </td>
+
 
                 </tr>
               ))

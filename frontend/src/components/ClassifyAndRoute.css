@@ -4,7 +4,8 @@
 
 .route-layout {
   display: flex;
-  height: 100%;
+  height: 100vh;        /* full viewport height */
+  overflow: hidden;     /* prevent body scroll */
   background: #f8f9fb;
 }
 
@@ -13,14 +14,16 @@
   background: white;
   padding: 20px;
   border-right: 1px solid #ddd;
+  overflow-y: auto;     /* scroll left if content overflows */
 }
 
 .route-right {
   flex: 0.75;
   padding: 20px;
-  overflow-y: auto;
+  overflow-y: auto;     /* independent scroll */
   background: #fafafa;
 }
+
 
 .upload-btn {
   margin-top: 10px;
@@ -162,3 +165,12 @@
   }
 }
 
+/* Action column (Send + Trash buttons) */
+/* ✅ flex on inner wrapper, not on <td> */
+.action-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+}
